@@ -34,6 +34,23 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 The API is now available at http://localhost:8000. Interactive docs at http://localhost:8000/docs.
 
+## Render Deployment
+
+This repo includes a `render.yaml` Blueprint that provisions the web service, Postgres database, and Redis-compatible Key Value instance.
+
+Render runs `scripts/deploy.sh` before starting the web service. That command:
+
+1. Applies Alembic migrations with `alembic upgrade head`.
+2. Populates event data by running the TDB and Equipe sync logic directly.
+
+Set `TDB_BASE_URL` and `EQUIPE_BASE_URL` in Render for population to run. If either value is empty, that sync is skipped.
+
+After the service is live, you can rerun the same imports through the API:
+
+```bash
+SERVICE_URL=https://gallopics-api.onrender.com bash scripts/post_deploy_sync.sh
+```
+
 ## Running Tests
 
 Tests use SQLite (in-memory) and fakeredis -- no real database or Redis needed.

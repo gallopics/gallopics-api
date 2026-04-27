@@ -1,0 +1,53 @@
+services:
+  - type: web
+    name: gallopics-api
+    runtime: python
+    plan: free
+    buildCommand: pip install .
+    preDeployCommand: bash scripts/deploy.sh
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gallopics-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: gallopics-redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: keyvalue
+          name: gallopics-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: keyvalue
+          name: gallopics-redis
+          property: connectionString
+      - key: TDB_BASE_URL
+        sync: false
+      - key: EQUIPE_BASE_URL
+        sync: false
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_JWKS_URL
+        sync: false
+      - key: KLARNA_API_URL
+        sync: false
+      - key: KLARNA_USERNAME
+        sync: false
+      - key: KLARNA_PASSWORD
+        sync: false
+  - type: keyvalue
+    name: gallopics-redis
+    plan: free
+
+databases:
+  - name: gallopics-db
+    plan: free
+    databaseName: gallopics
