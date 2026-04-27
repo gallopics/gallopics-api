@@ -42,6 +42,9 @@ dev = [
     "ruff",
 ]
 
+[tool.poetry]
+packages = [{ include = "app" }]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
