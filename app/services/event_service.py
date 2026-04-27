@@ -120,6 +120,7 @@ class EventService:
     async def sync_from_tdb(self, tdb_client: TDBClient) -> dict:
         raw_events = await tdb_client.search_events()
         created, updated, errors = 0, 0, 0
+        error_samples = []
         for raw in raw_events:
             try:
                 async with self.db.begin_nested():
@@ -136,4 +137,12 @@ class EventService:
             except Exception as e:
                 logger.error("tdb_sync_error", raw_event=raw, error=str(e))
                 errors += 1
-        return {"created": created, "updated": updated, "errors": errors}
+                if len(error_samples) < 5:
+                    error_samples.append(
+                        {
+                            "tdb_id": raw.get("id"),
+                            "name": raw.get("name"),
+                            "error": str(e),
+                        }
+                    )
+        return {"created": created, "updated": updated, "errors": errors, "error_samples": error_samples}

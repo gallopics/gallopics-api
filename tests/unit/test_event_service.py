@@ -104,6 +104,21 @@ async def test_upsert_event_by_tdb_id_updates_existing(service):
     assert event2.id == event1.id
 
 
+async def test_sync_from_tdb_returns_error_samples(service):
+    class FakeTDBClient:
+        async def search_events(self):
+            return [{"id": "tdb-bad", "name": "Bad Event", "start_date": None}]
+
+    result = await service.sync_from_tdb(FakeTDBClient())
+
+    assert result["created"] == 0
+    assert result["updated"] == 0
+    assert result["errors"] == 1
+    assert result["error_samples"][0]["tdb_id"] == "tdb-bad"
+    assert result["error_samples"][0]["name"] == "Bad Event"
+    assert result["error_samples"][0]["error"]
+
+
 async def test_update_event(service):
     event = await service.create_event(make_event(name="Old Name"))
     updated = await service.update_event(event.id, {"name": "New Name"})
