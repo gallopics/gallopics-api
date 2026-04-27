@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import create_schema
@@ -40,6 +41,17 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            origin.strip()
+            for origin in settings.cors_origins.split(",")
+            if origin.strip()
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(RequestLoggingMiddleware)
 
     app.add_exception_handler(GallopicsException, gallopics_exception_handler)

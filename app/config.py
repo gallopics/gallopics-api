@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
+    cors_origins: str = "http://localhost:5173,https://gallopics.com"
 
     # Database
     database_url: str = "postgresql+asyncpg://localhost/gallopics_dev"
