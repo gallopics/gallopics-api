@@ -1,0 +1,377 @@
+Gallopics API
+Functional Requirement
+Architecture & Specification
+Project: Gallopics API
+Phase: Release 1
+Version: 1.0
+
+1) Recommended architecture
+Use Python + FastAPI.
+Core stack
+fastapi → API layer
+uvicorn → ASGI server
+httpx → async integrations (TDB, Equipe, Klarna)
+pydantic → schemas
+sqlalchemy + alembic → ORM + migrations
+psycopg[binary] → PostgreSQL driver
+redis → caching + rate limiting
+tenacity → retries
+python-slugify → URL-safe slugs
+rapidfuzz → matching logic
+python-dateutil → date parsing
+structlog → structured logging
+Storage
+PostgreSQL → primary DB
+Object storage (S3 / R2 / Azure Blob) → images
+Auth
+Clerk
+backend JWT/session validation
+no custom auth system
+Background processing
+Celery or RQ (recommended)
+jobs:
+TDB sync
+Equipe sync
+event matching
+image processing (thumbnails, watermark)
+
+2) Overview
+Backend is a normalization + orchestration layer, not a proxy.
+It must:
+ingest events from TDB
+ingest results from Equipe
+match and merge events
+store normalized data
+expose stable API for gallopics.com
+handle users (Clerk)
+handle payments (Klarna)
+handle photographer uploads + galleries
+hide all external API complexity
+
+3) Functional requirements
+3.1 Event aggregation
+Fetch events from TDB (search endpoint)
+Normalize into internal schema
+Store raw payload for traceability
+Support filters:
+date range
+discipline
+horse type
+district
+organizer
+status
+sustainability
+Cache responses (Redis)
+Scheduled sync (hourly/daily)
+
+3.2 Event ↔ Result matching
+Fetch meetings from Equipe API
+Match using priority:
+tdb_id
+date + normalized name
+organizer similarity
+venue similarity
+fuzzy score
+Store:
+match_status
+match_score
+match_method
+Expose merged event + results
+
+3.3 Website consumption
+Frontend must not call external APIs.
+It consumes:
+events
+results
+galleries
+checkout
+orders
+user profile
+
+3.4 User identity (Clerk)
+sign up / login handled by Clerk
+backend validates JWT
+store local user:
+clerk_user_id
+role (user, photographer, admin)
+
+3.5 Payments (Klarna)
+Support full lifecycle:
+create payment session
+authorize payment
+create internal order
+capture
+refund
+cancel
+Store:
+klarna_session_id
+authorization_token
+order_id
+Critical:
+idempotency required
+server-side callback required
+
+3.6 Photographer module (NEW – REQUIRED)
+Upload
+batch upload via presigned URLs
+no direct file upload via API
+Metadata
+tag photos:
+rider
+horse
+class
+start number
+Visibility
+draft / published / hidden
+Processing
+generate:
+thumbnail
+preview
+watermark
+Sales
+price per photo
+Klarna checkout for photos
+
+3.7 Admin
+manual event matching
+re-run sync/matching
+manage orders
+refund/cancel payments
+moderate photos
+manage photographers
+
+3.8 Non-functional
+rate limiting
+retry + timeout (external APIs)
+audit logging
+idempotency (orders)
+API versioning /api/v1
+background jobs
+observability (logs + metrics)
+
+4) Internal domain model
+Event
+id
+tdb_id
+equipe_id
+name
+slug
+discipline
+horse_type
+organizer_name
+district
+venue_name
+city
+country
+start_date
+end_date
+status
+is_sustainable
+match_status
+match_score
+raw_tdb_payload
+raw_equipe_payload
+timestamps
+
+EventResult
+id
+event_id
+class_name
+participant_name
+horse_name
+ranking
+score
+payload
+published_at
+
+User
+id
+clerk_user_id
+email
+role
+
+Order
+id
+user_id
+status
+amount
+currency
+klarna_order_id
+timestamps
+
+PaymentTransaction
+id
+order_id
+type
+status
+payload
+
+Photographer
+id
+user_id
+display_name
+status
+
+Photo
+id
+event_id
+photographer_id
+storage_key_original
+storage_key_preview
+storage_key_thumbnail
+price
+currency
+status
+visibility
+timestamps
+
+PhotoTag
+photo_id
+type
+value
+
+PhotoOrder
+id
+user_id
+amount
+currency
+klarna_order_id
+
+5) API endpoints
+Events
+GET /api/v1/events
+GET /api/v1/events/{id}
+GET /api/v1/events/{id}/results
+
+User
+GET /api/v1/me
+GET /api/v1/me/orders
+
+Checkout
+POST /api/v1/checkout/sessions
+POST /api/v1/checkout/authorize
+POST /api/v1/checkout/callback/klarna
+
+Orders
+GET /api/v1/orders/{id}
+POST /api/v1/orders/{id}/capture
+POST /api/v1/orders/{id}/refund
+POST /api/v1/orders/{id}/cancel
+
+Photographer (NEW)
+Upload
+POST /api/v1/photographer/uploads/sessions
+POST /api/v1/photographer/uploads/complete
+Photos
+GET /api/v1/photographer/photos
+PATCH /api/v1/photographer/photos/{id}
+DELETE /api/v1/photographer/photos/{id}
+Public gallery
+GET /api/v1/events/{event_id}/gallery
+GET /api/v1/events/{event_id}/gallery/search
+GET /api/v1/photos/{id}
+Purchase
+POST /api/v1/photo-checkout/sessions
+GET /api/v1/me/purchases/photos
+POST /api/v1/photos/{id}/download
+
+Integrations
+POST /api/v1/integrations/tdb/sync
+POST /api/v1/integrations/equipe/sync
+POST /api/v1/integrations/events/rematch
+GET /api/v1/integrations/events/unmatched
+
+Admin
+GET /api/v1/admin/orders
+POST /api/v1/admin/events/{id}/match
+POST /api/v1/admin/events/{id}/unmatch
+
+6) Matching logic (final)
+Priority:
+tdb_id → exact match
+date match
+normalized name
+organizer similarity
+venue similarity
+fuzzy match
+Scoring
+1.00 → exact id
+0.85 → date + strong name
+0.75 → date + partial match
+<0.70 → reject
+Store
+match_status
+match_score
+match_method
+
+7) Appendix: AI build prompt
+Build a production-grade FastAPI backend for gallopics.com.
+
+Core:
+- Normalize events from TDB
+- Enrich with Equipe results
+- Implement event matching logic with scoring
+- Store normalized + raw payloads
+
+Tech:
+- Python 3.12+
+- FastAPI
+- PostgreSQL (SQLAlchemy + Alembic)
+- Redis
+- httpx
+- Celery/RQ
+- Object storage for images
+
+Auth:
+- Clerk JWT validation
+- roles: user, photographer, admin
+
+Payments:
+- Klarna integration:
+ - session
+ - authorize
+ - capture
+ - refund
+ - cancel
+- idempotency required
+
+Photographer module:
+- presigned upload flow
+- photo metadata + tagging
+- gallery per event
+- watermark + thumbnails
+- photo sales via Klarna
+
+API:
+- events, results
+- user profile
+- checkout/orders
+- photographer uploads
+- galleries
+- admin tools
+
+Return:
+- project structure
+- models
+- schemas
+- routers
+- services
+- integrations
+- matching service
+- migrations
+- docker setup
+
+8) Appendix: API mockup
+It includes:
+events
+event results
+users
+photographers
+upload sessions
+photos
+photo tags
+orders
+payment transactions
+photo orders
+unmatched events
+a simple mock route map
