@@ -1,13 +1,10 @@
 import asyncio
 
-from app.database import engine
-from app.models import event, order, photographer, user  # noqa: F401
-from app.models.base import Base
+from app.database import create_schema
 
 
 async def main() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_schema()
 
 
 if __name__ == "__main__":

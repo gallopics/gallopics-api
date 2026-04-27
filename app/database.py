@@ -24,3 +24,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.execute(text("SELECT 1"))
+
+
+async def create_schema() -> None:
+    from app.models import event, order, photographer, user  # noqa: F401
+    from app.models.base import Base
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)

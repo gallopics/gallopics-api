@@ -1,6 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.database import get_db
 from app.schemas import HealthResponse
 
 router = APIRouter(tags=["health"])
@@ -13,3 +16,9 @@ async def health_check() -> HealthResponse:
         status="ok",
         version=settings.app_version,
     )
+
+
+@router.get("/health/db")
+async def database_health_check(db: AsyncSession = Depends(get_db)) -> dict:
+    await db.execute(text("SELECT 1"))
+    return {"status": "ok"}
