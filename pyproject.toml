@@ -18,6 +18,7 @@ dependencies = [
     "httpx",
     "pydantic>=2.0",
     "pydantic-settings",
+    "python-multipart",
     "python-slugify",
     "rapidfuzz",
     "structlog",

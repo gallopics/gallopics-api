@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+from fastapi import UploadFile
+
 
 class StorageBackend(ABC):
     @abstractmethod
@@ -25,6 +27,9 @@ class StorageBackend(ABC):
     @abstractmethod
     async def object_exists(self, key: str) -> bool:
         ...
+
+    async def write_upload_file(self, file: UploadFile, key: str) -> str:
+        raise NotImplementedError
 
 
 def get_storage_backend(settings) -> StorageBackend:

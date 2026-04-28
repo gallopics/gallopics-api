@@ -2,7 +2,9 @@ import jwt as pyjwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from app.integrations.clerk.auth import ClerkAuth
+from app.exceptions import UnauthorizedError
+from app.integrations.clerk.auth import ClerkAuth, _clerk_approval_status
+from app.models.enums import PhotographerStatus
 
 
 def test_validate_token_with_wrong_key():
@@ -20,6 +22,31 @@ def test_validate_token_success(rsa_keypair, rsa_public_key):
     token = pyjwt.encode({"sub": "user1", "email": "a@b.com"}, rsa_keypair, algorithm="RS256")
     claims = pyjwt.decode(token, rsa_public_key, algorithms=["RS256"], options={"verify_aud": False})
     assert claims["sub"] == "user1"
+
+
+def test_derive_jwks_url_from_clerk_issuer():
+    token = pyjwt.encode(
+        {"sub": "user1", "iss": "https://example.clerk.accounts.dev"},
+        "secret",
+        algorithm="HS256",
+    )
+
+    assert ClerkAuth._derive_jwks_url(token) == "https://example.clerk.accounts.dev/.well-known/jwks.json"
+
+
+def test_derive_jwks_url_requires_https_issuer():
+    token = pyjwt.encode({"sub": "user1", "iss": "http://example.test"}, "secret", algorithm="HS256")
+
+    with pytest.raises(UnauthorizedError):
+        ClerkAuth._derive_jwks_url(token)
+
+
+def test_approval_status_reads_private_metadata():
+    status = _clerk_approval_status(
+        {"private_metadata": {"approvalStatus": "approved"}}
+    )
+
+    assert status == PhotographerStatus.APPROVED
 
 
 async def test_get_current_user_no_header(async_client):

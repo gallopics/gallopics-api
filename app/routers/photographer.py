@@ -1,31 +1,77 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.integrations.clerk.auth import require_role
+from app.integrations.clerk.auth import get_current_user, require_role
 from app.models.enums import PhotoVisibility, UserRole
 from app.models.user import User
 from app.schemas import PaginatedResponse
 from app.schemas.photographer import (
     CompleteUploadRequest,
     CreateUploadSessionRequest,
+    PhotographerResponse,
     PhotoResponse,
     UpdatePhotoRequest,
     UploadSessionResponse,
+    UpsertPhotographerProfileRequest,
 )
 from app.services.photographer_service import PhotographerService
 from app.storage.base import get_storage_backend
 
 router = APIRouter(prefix="/api/v1/photographer", tags=["photographer"])
+public_router = APIRouter(prefix="/api/v1/photographers", tags=["photographers"])
 
 
 def _get_storage():
     settings = get_settings()
     return get_storage_backend(settings)
+
+
+@router.get("/me", response_model=PhotographerResponse)
+async def get_my_photographer_profile(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    return PhotographerResponse.model_validate(photographer)
+
+
+@router.put("/me", response_model=PhotographerResponse)
+async def upsert_my_photographer_profile(
+    body: UpsertPhotographerProfileRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.upsert_profile(user, body.model_dump())
+    return PhotographerResponse.model_validate(photographer)
+
+
+@router.post("/me/avatar", response_model=PhotographerResponse)
+async def upload_my_avatar(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    storage = _get_storage()
+    service = PhotographerService(db, storage)
+    photographer = await service.upload_avatar(user, file)
+    return PhotographerResponse.model_validate(photographer)
+
+
+@public_router.get("/{slug_or_id}", response_model=PhotographerResponse)
+async def get_public_photographer_profile(
+    slug_or_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_public_photographer(slug_or_id)
+    return PhotographerResponse.model_validate(photographer)
 
 
 @router.post("/uploads/sessions", response_model=UploadSessionResponse)
@@ -51,7 +97,7 @@ async def complete_upload(
 ):
     storage = _get_storage()
     service = PhotographerService(db, storage)
-    photographer = await service.get_photographer_for_user(user.id)
+    await service.get_photographer_for_user(user.id)
     # In production, we'd look up the session details from cache/DB
     # For now, return empty since we need the session data
     return []

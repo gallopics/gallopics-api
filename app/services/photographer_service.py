@@ -1,18 +1,26 @@
 import uuid
 from typing import Optional
 
+from fastapi import UploadFile
+from slugify import slugify
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.exceptions import ForbiddenError, NotFoundError
-from app.models.enums import PhotoStatus, PhotoTagType, PhotoVisibility
-from app.models.photographer import Photo, PhotoTag, Photographer
+from app.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
+from app.models.enums import (
+    PhotographerStatus,
+    PhotoStatus,
+    PhotoVisibility,
+    UserRole,
+)
+from app.models.photographer import Photo, Photographer, PhotoTag
+from app.models.user import User
 from app.storage.base import StorageBackend
 
 
 class PhotographerService:
-    def __init__(self, db: AsyncSession, storage: StorageBackend):
+    def __init__(self, db: AsyncSession, storage: Optional[StorageBackend] = None):
         self.db = db
         self.storage = storage
 
@@ -25,6 +33,94 @@ class PhotographerService:
             raise NotFoundError("Photographer profile not found")
         return photographer
 
+    async def get_public_photographer(self, slug_or_id: str) -> Photographer:
+        photographer = None
+        try:
+            photographer_id = uuid.UUID(slug_or_id)
+        except ValueError:
+            photographer_id = None
+
+        if photographer_id:
+            photographer = await self.db.get(Photographer, photographer_id)
+        if not photographer:
+            result = await self.db.execute(
+                select(Photographer).where(Photographer.slug == slug_or_id)
+            )
+            photographer = result.scalar_one_or_none()
+        if not photographer:
+            raise NotFoundError("Photographer profile not found")
+        return photographer
+
+    async def upsert_profile(self, user: User, data: dict) -> Photographer:
+        display_name = data["display_name"].strip()
+        requested_slug = data.get("slug") or display_name
+        profile_slug = slugify(requested_slug) or slugify(display_name)
+        if not profile_slug:
+            raise ConflictError("Photographer slug could not be generated")
+
+        result = await self.db.execute(
+            select(Photographer).where(Photographer.user_id == user.id)
+        )
+        photographer = result.scalar_one_or_none()
+
+        slug_owner_result = await self.db.execute(
+            select(Photographer).where(Photographer.slug == profile_slug)
+        )
+        slug_owner = slug_owner_result.scalar_one_or_none()
+        if slug_owner and (not photographer or slug_owner.id != photographer.id):
+            raise ConflictError("Photographer slug is already in use")
+
+        if not photographer:
+            photographer = Photographer(
+                user_id=user.id,
+                slug=profile_slug,
+                display_name=display_name,
+                status=PhotographerStatus.PENDING,
+            )
+            self.db.add(photographer)
+
+        photographer.slug = profile_slug
+        photographer.display_name = display_name
+        photographer.city = data.get("city")
+        photographer.country = data.get("country")
+        photographer.avatar_url = data.get("avatar_url")
+        photographer.phone = data.get("phone")
+        if data.get("is_available_to_hire") is not None:
+            photographer.is_available_to_hire = data["is_available_to_hire"]
+        user.role = UserRole.PHOTOGRAPHER
+
+        await self.db.flush()
+        await self.db.refresh(photographer)
+        return photographer
+
+    async def upload_avatar(self, user: User, file: UploadFile) -> Photographer:
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise BadRequestError("Avatar must be an image file")
+
+        extension = {
+            "image/jpeg": "jpg",
+            "image/png": "png",
+            "image/webp": "webp",
+            "image/gif": "gif",
+        }.get(file.content_type, "jpg")
+        storage_key = f"avatars/{user.id}/{uuid.uuid4()}.{extension}"
+
+        result = await self.db.execute(
+            select(Photographer).where(Photographer.user_id == user.id)
+        )
+        photographer = result.scalar_one_or_none()
+        if not photographer:
+            raise NotFoundError("Photographer profile not found")
+
+        if not self.storage:
+            raise BadRequestError("Storage backend not configured")
+
+        target_path = await self.storage.write_upload_file(file, storage_key)
+        photographer.avatar_url = f"/uploads/{target_path}"
+        await self.db.flush()
+        await self.db.refresh(photographer)
+        return photographer
+
     async def create_upload_session(
         self,
         photographer_id: uuid.UUID,
@@ -35,9 +131,9 @@ class PhotographerService:
         uploads = []
         for f in files:
             storage_key = f"originals/{event_id}/{session_id}/{f['filename']}"
-            upload_url = await self.storage.generate_presigned_upload_url(
-                storage_key, f["content_type"]
-            )
+            if not self.storage:
+                raise NotFoundError("Storage backend not configured")
+            upload_url = await self.storage.generate_presigned_upload_url(storage_key, f["content_type"])
             uploads.append({
                 "filename": f["filename"],
                 "upload_url": upload_url,
@@ -46,7 +142,12 @@ class PhotographerService:
         return {"session_id": session_id, "uploads": uploads}
 
     async def complete_upload(
-        self, session_id: str, photographer_id: uuid.UUID, event_id: uuid.UUID, storage_keys: list[str], price: int = 10000
+        self,
+        session_id: str,
+        photographer_id: uuid.UUID,
+        event_id: uuid.UUID,
+        storage_keys: list[str],
+        price: int = 10000,
     ) -> list[Photo]:
         photos = []
         for key in storage_keys:

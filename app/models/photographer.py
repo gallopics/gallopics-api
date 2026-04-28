@@ -1,7 +1,9 @@
-import uuid
-from typing import Optional
+from __future__ import annotations
 
-from sqlalchemy import ForeignKey, String
+import uuid
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -13,14 +15,24 @@ from app.models.enums import (
     PhotoVisibility,
 )
 
+if TYPE_CHECKING:
+    from app.models.user import User
+
 
 class Photographer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "photographers"
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), unique=True)
+    slug: Mapped[str] = mapped_column(String, unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String)
+    city: Mapped[Optional[str]] = mapped_column(String)
+    country: Mapped[Optional[str]] = mapped_column(String)
+    avatar_url: Mapped[Optional[str]] = mapped_column(String)
+    phone: Mapped[Optional[str]] = mapped_column(String)
+    is_available_to_hire: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[PhotographerStatus] = mapped_column(default=PhotographerStatus.PENDING)
 
+    user: Mapped["User"] = relationship("User", back_populates="photographer")
     photos: Mapped[list["Photo"]] = relationship(back_populates="photographer", cascade="all, delete-orphan")
 
 
