@@ -34,10 +34,26 @@ class PhotographerResponse(BaseModel):
 
     id: uuid.UUID
     user_id: uuid.UUID
+    slug: str
     display_name: str
+    city: Optional[str] = None
+    country: Optional[str] = None
+    avatar_url: Optional[str] = None
+    phone: Optional[str] = None
+    is_available_to_hire: bool
     status: str
     created_at: datetime
     updated_at: datetime
+
+
+class UpsertPhotographerProfileRequest(BaseModel):
+    slug: Optional[str] = None
+    display_name: str
+    city: Optional[str] = None
+    country: Optional[str] = None
+    avatar_url: Optional[str] = None
+    phone: Optional[str] = None
+    is_available_to_hire: Optional[bool] = None
 
 
 class FileInfo(BaseModel):

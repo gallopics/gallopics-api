@@ -1,6 +1,7 @@
-import os
 import shutil
 from pathlib import Path
+
+from fastapi import UploadFile
 
 from app.storage.base import StorageBackend
 
@@ -14,6 +15,13 @@ class LocalStorageBackend(StorageBackend):
         path = self.base_path / key
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
+
+    async def write_upload_file(self, file: UploadFile, key: str) -> str:
+        path = self._full_path(key)
+        with path.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                output.write(chunk)
+        return key
 
     async def generate_presigned_upload_url(self, key: str, content_type: str, expires_in: int = 3600) -> str:
         return f"file://{self._full_path(key)}"

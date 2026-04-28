@@ -1,12 +1,15 @@
 import uuid
 
-import pytest
-
-from app.models.enums import PhotoStatus, PhotoTagType, PhotoVisibility
+from app.models.enums import (
+    PhotographerStatus,
+    PhotoStatus,
+    PhotoTagType,
+    PhotoVisibility,
+    UserRole,
+)
 from app.models.event import Event
-from app.models.photographer import Photo, PhotoTag, Photographer
+from app.models.photographer import Photo, Photographer, PhotoTag
 from app.models.user import User
-from app.models.enums import UserRole, PhotographerStatus
 from tests.factories import make_event
 
 
@@ -16,7 +19,12 @@ async def _seed_gallery(db_session):
     db_session.add(user)
     await db_session.flush()
 
-    photographer = Photographer(user_id=user.id, display_name="Test Photographer", status=PhotographerStatus.APPROVED)
+    photographer = Photographer(
+        user_id=user.id,
+        slug="test-photographer",
+        display_name="Test Photographer",
+        status=PhotographerStatus.APPROVED,
+    )
     db_session.add(photographer)
     await db_session.flush()
 
