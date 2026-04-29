@@ -12,18 +12,15 @@ def sync_equipe_meetings(self):
     from app.config import get_settings
     from app.database import async_session_factory
     from app.integrations.equipe.client import EquipeClient
-    from app.integrations.equipe.normalizer import normalize_equipe_meeting
-    from app.services.matching_service import MatchingService
+    from app.services.event_service import EventService
 
     async def _run():
         settings = get_settings()
         equipe_client = EquipeClient(settings.equipe_base_url)
         try:
-            raw_meetings = await equipe_client.get_meetings()
-            normalized = [normalize_equipe_meeting(m) for m in raw_meetings]
             async with async_session_factory() as db:
-                matching_service = MatchingService(db)
-                result = await matching_service.run_matching_batch(normalized)
+                event_service = EventService(db)
+                result = await event_service.sync_from_equipe(equipe_client, country="swe")
                 await db.commit()
                 return result
         finally:

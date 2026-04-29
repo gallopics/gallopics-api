@@ -17,11 +17,20 @@ def equipe_client(equipe_base_url):
 
 @respx.mock
 async def test_get_meetings_success(equipe_client, equipe_base_url):
-    respx.get(f"{equipe_base_url}/meetings").mock(
+    respx.get(f"{equipe_base_url}/meetings/recent").mock(
         return_value=httpx.Response(200, json=[{"id": "m1", "name": "Meeting 1"}])
     )
     result = await equipe_client.get_meetings()
     assert len(result) == 1
+
+
+@respx.mock
+async def test_get_meetings_unwraps_payload(equipe_client, equipe_base_url):
+    respx.get(f"{equipe_base_url}/meetings/recent").mock(
+        return_value=httpx.Response(200, json={"data": [{"id": "m1", "name": "Meeting 1"}]})
+    )
+    result = await equipe_client.get_meetings(params={"country": "swe"})
+    assert result == [{"id": "m1", "name": "Meeting 1"}]
 
 
 @respx.mock
@@ -35,7 +44,7 @@ async def test_get_meeting_results_success(equipe_client, equipe_base_url):
 
 @respx.mock
 async def test_retry_on_transient_error(equipe_client, equipe_base_url):
-    route = respx.get(f"{equipe_base_url}/meetings")
+    route = respx.get(f"{equipe_base_url}/meetings/recent")
     route.side_effect = [
         httpx.Response(500),
         httpx.Response(200, json=[]),

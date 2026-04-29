@@ -6,7 +6,5 @@ if [[ -z "${SERVICE_URL:-}" ]]; then
   exit 1
 fi
 
-curl -fsS -X POST "$SERVICE_URL/api/v1/integrations/tdb/sync"
-echo
 curl -fsS -X POST "$SERVICE_URL/api/v1/integrations/equipe/sync"
 echo

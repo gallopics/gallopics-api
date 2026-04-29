@@ -26,7 +26,34 @@ def test_normalize_meeting_minimal():
     raw = {"id": "eq-002", "name": "Small Meet", "start_date": "2026-01-01"}
     result = normalize_equipe_meeting(raw)
     assert result["equipe_id"] == "eq-002"
-    assert result["country"] == "SE"
+    assert result["country"] == "SWE"
+
+
+def test_normalize_online_equipe_meeting_shape():
+    raw = {
+        "id": 78298,
+        "display_name": "Swedish Dressage",
+        "start_on": "2026-05-13",
+        "end_on": "2026-05-14",
+        "equipe_id": 90019,
+        "tdb_id": "8223",
+        "discipline": "dressage",
+        "disciplines": ["dressage"],
+        "statuses": ["national"],
+        "horse_ponies": ["horse"],
+        "venue_country": "SWE",
+    }
+    result = normalize_equipe_meeting(raw)
+    assert result["equipe_id"] == "90019"
+    assert result["tdb_id"] == "8223"
+    assert result["name"] == "Swedish Dressage"
+    assert result["start_date"] == date(2026, 5, 13)
+    assert result["end_date"] == date(2026, 5, 14)
+    assert result["country"] == "SWE"
+    assert result["discipline"] == "dressage"
+    assert result["horse_type"] == "horse"
+    assert "swedish-dressage" in result["slug"]
+    assert result["raw_equipe_payload"] == raw
 
 
 def test_normalize_results():

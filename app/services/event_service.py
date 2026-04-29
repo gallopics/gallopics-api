@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import NotFoundError
+from app.integrations.equipe.client import EquipeClient
+from app.integrations.equipe.normalizer import normalize_equipe_meeting
 from app.integrations.tdb.client import TDBClient
 from app.integrations.tdb.normalizer import normalize_tdb_event
 from app.models.event import Event, EventResult
@@ -98,6 +100,26 @@ class EventService:
             event = await self.create_event(data)
             return event, True
 
+    async def upsert_event_by_equipe_id(self, equipe_id: str, data: dict) -> tuple[Event, bool]:
+        result = await self.db.execute(select(Event).where(Event.equipe_id == equipe_id))
+        existing = result.scalar_one_or_none()
+
+        if not existing and data.get("tdb_id"):
+            result = await self.db.execute(select(Event).where(Event.tdb_id == data["tdb_id"]))
+            existing = result.scalar_one_or_none()
+
+        if existing:
+            for key, value in data.items():
+                if key != "equipe_id":
+                    setattr(existing, key, value)
+            existing.equipe_id = equipe_id
+            await self.db.flush()
+            return existing, False
+
+        data["equipe_id"] = equipe_id
+        event = await self.create_event(data)
+        return event, True
+
     async def get_event_results(self, event_id: uuid.UUID) -> list[EventResult]:
         await self.get_event(event_id)
         result = await self.db.execute(
@@ -146,3 +168,49 @@ class EventService:
                         }
                     )
         return {"created": created, "updated": updated, "errors": errors, "error_samples": error_samples}
+
+    async def sync_from_equipe(self, equipe_client: EquipeClient, country: str = "swe") -> dict:
+        raw_meetings = await equipe_client.get_meetings(params={"country": country})
+        created, updated, skipped, errors = 0, 0, 0, 0
+        error_samples = []
+        accepted_countries = {country.lower()}
+        if country.lower() == "swe":
+            accepted_countries.add("se")
+
+        for raw in raw_meetings:
+            venue_country = (raw.get("venue_country") or raw.get("country") or "").lower()
+            if country and venue_country and venue_country not in accepted_countries:
+                skipped += 1
+                continue
+
+            try:
+                async with self.db.begin_nested():
+                    normalized = normalize_equipe_meeting(raw)
+                    equipe_id = normalized.pop("equipe_id", None)
+                    if not equipe_id or not normalized.get("start_date"):
+                        errors += 1
+                        continue
+                    event, is_new = await self.upsert_event_by_equipe_id(equipe_id, normalized)
+                if is_new:
+                    created += 1
+                else:
+                    updated += 1
+            except Exception as e:
+                logger.error("equipe_sync_error", raw_meeting=raw, error=str(e))
+                errors += 1
+                if len(error_samples) < 5:
+                    error_samples.append(
+                        {
+                            "equipe_id": raw.get("equipe_id") or raw.get("id"),
+                            "name": raw.get("display_name") or raw.get("name"),
+                            "error": str(e),
+                        }
+                    )
+
+        return {
+            "created": created,
+            "updated": updated,
+            "skipped": skipped,
+            "errors": errors,
+            "error_samples": error_samples,
+        }
