@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     tdb_base_url: str = ""
 
     # Equipe
-    equipe_base_url: str = ""
+    equipe_base_url: str = "https://online.equipe.com/api/v1"
 
     @field_validator("database_url", mode="before")
     @classmethod

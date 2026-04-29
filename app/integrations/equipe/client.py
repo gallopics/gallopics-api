@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -14,9 +14,17 @@ class EquipeClient:
         retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
     )
     async def get_meetings(self, params: Optional[dict] = None) -> list[dict]:
-        response = await self._client.get("/meetings", params=params or {})
+        response = await self._client.get("/meetings/recent", params=params or {})
         response.raise_for_status()
-        return response.json()
+        payload: Any = response.json()
+        if isinstance(payload, list):
+            return payload
+        if isinstance(payload, dict):
+            for key in ("data", "meetings", "results", "items"):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    return value
+        return []
 
     @retry(
         stop=stop_after_attempt(3),

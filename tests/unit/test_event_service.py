@@ -104,6 +104,26 @@ async def test_upsert_event_by_tdb_id_updates_existing(service):
     assert event2.id == event1.id
 
 
+async def test_upsert_event_by_equipe_id_creates_new(service):
+    data = make_event(name="Equipe Event", country="SWE")
+    event, is_new = await service.upsert_event_by_equipe_id("90019", data)
+    assert is_new is True
+    assert event.equipe_id == "90019"
+    assert event.name == "Equipe Event"
+
+
+async def test_upsert_event_by_equipe_id_updates_existing_tdb_event(service):
+    event1, _ = await service.upsert_event_by_tdb_id("8223", make_event(name="TDB Event"))
+
+    data = make_event(name="Equipe Event", tdb_id="8223", country="SWE")
+    event2, is_new = await service.upsert_event_by_equipe_id("90019", data)
+
+    assert is_new is False
+    assert event2.id == event1.id
+    assert event2.equipe_id == "90019"
+    assert event2.name == "Equipe Event"
+
+
 async def test_sync_from_tdb_returns_error_samples(service):
     class FakeTDBClient:
         async def search_events(self):
@@ -117,6 +137,50 @@ async def test_sync_from_tdb_returns_error_samples(service):
     assert result["error_samples"][0]["tdb_id"] == "tdb-bad"
     assert result["error_samples"][0]["name"] == "Bad Event"
     assert result["error_samples"][0]["error"]
+
+
+async def test_sync_from_equipe_populates_events_table(service):
+    class FakeEquipeClient:
+        async def get_meetings(self, params=None):
+            assert params == {"country": "swe"}
+            return [
+                {
+                    "id": 78298,
+                    "display_name": "Swedish Dressage",
+                    "start_on": "2026-05-13",
+                    "equipe_id": 90019,
+                    "venue_country": "SWE",
+                    "discipline": "dressage",
+                }
+            ]
+
+    result = await service.sync_from_equipe(FakeEquipeClient())
+
+    assert result["created"] == 1
+    assert result["updated"] == 0
+    items, total = await service.list_events(EventFilters())
+    assert total == 1
+    assert items[0].equipe_id == "90019"
+    assert items[0].country == "SWE"
+
+
+async def test_sync_from_equipe_skips_non_swedish_meetings(service):
+    class FakeEquipeClient:
+        async def get_meetings(self, params=None):
+            return [
+                {
+                    "id": 78298,
+                    "display_name": "British Dressage",
+                    "start_on": "2026-05-13",
+                    "equipe_id": 90019,
+                    "venue_country": "GBR",
+                }
+            ]
+
+    result = await service.sync_from_equipe(FakeEquipeClient())
+
+    assert result["created"] == 0
+    assert result["skipped"] == 1
 
 
 async def test_update_event(service):
