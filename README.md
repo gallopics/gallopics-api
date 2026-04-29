@@ -40,7 +40,7 @@ This repo includes a `render.yaml` Blueprint that provisions the web service, Po
 
 Render runs `scripts/deploy.sh` before starting the web service. That command:
 
-1. Creates missing database tables from the SQLAlchemy models.
+1. Applies Alembic migrations so the database schema matches the SQLAlchemy models.
 2. Populates event data by running the TDB and Equipe sync logic directly.
 
 Set `TDB_BASE_URL` and `EQUIPE_BASE_URL` in Render for population to run. If either value is empty, that sync is skipped.
