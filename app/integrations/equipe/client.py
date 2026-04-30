@@ -36,5 +36,16 @@ class EquipeClient:
         response.raise_for_status()
         return response.json()
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
+    )
+    async def get_meeting_schedule(self, meeting_id: str) -> dict:
+        response = await self._client.get(f"/meetings/{meeting_id}/schedule")
+        response.raise_for_status()
+        payload: Any = response.json()
+        return payload if isinstance(payload, dict) else {}
+
     async def close(self):
         await self._client.aclose()

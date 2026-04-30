@@ -43,6 +43,21 @@ async def test_get_meeting_results_success(equipe_client, equipe_base_url):
 
 
 @respx.mock
+async def test_get_meeting_schedule_success(equipe_client, equipe_base_url):
+    respx.get(f"{equipe_base_url}/meetings/m1/schedule").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "m1",
+                "meeting_classes": [{"id": "c1", "name": "Class 1"}],
+            },
+        )
+    )
+    result = await equipe_client.get_meeting_schedule("m1")
+    assert result["meeting_classes"][0]["name"] == "Class 1"
+
+
+@respx.mock
 async def test_retry_on_transient_error(equipe_client, equipe_base_url):
     route = respx.get(f"{equipe_base_url}/meetings/recent")
     route.side_effect = [

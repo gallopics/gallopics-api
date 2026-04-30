@@ -55,3 +55,26 @@ class EventResultResponse(BaseModel):
     ranking: Optional[int] = None
     score: Optional[str] = None
     published_at: Optional[datetime] = None
+
+
+class EventClassResponse(BaseModel):
+    id: str
+    name: str
+    class_no: Optional[str] = None
+    date: date
+    start_time: Optional[str] = None
+    arena: str
+    discipline: Optional[str] = None
+    position: int = 0
+
+
+class EventScheduleDayResponse(BaseModel):
+    date: date
+    classes: list[EventClassResponse]
+
+
+class EventScheduleResponse(BaseModel):
+    event_id: uuid.UUID
+    equipe_meeting_id: str
+    classes_count: int
+    days: list[EventScheduleDayResponse]
