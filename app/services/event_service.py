@@ -1,6 +1,8 @@
 import uuid
+from datetime import date
 
 import structlog
+from dateutil.parser import parse as parse_date
 from slugify import slugify
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +13,7 @@ from app.integrations.equipe.normalizer import normalize_equipe_meeting
 from app.integrations.tdb.client import TDBClient
 from app.integrations.tdb.normalizer import normalize_tdb_event
 from app.models.event import Event, EventResult
-from app.schemas.event import EventFilters
+from app.schemas.event import EventFilters, EventScheduleResponse
 
 logger = structlog.get_logger()
 
@@ -126,6 +128,86 @@ class EventService:
             select(EventResult).where(EventResult.event_id == event_id)
         )
         return list(result.scalars().all())
+
+    def _get_equipe_meeting_id(self, event: Event) -> str | None:
+        raw_payload = event.raw_equipe_payload or {}
+        raw_meeting_id = raw_payload.get("id")
+        if raw_meeting_id is not None:
+            return str(raw_meeting_id)
+        return event.equipe_id
+
+    def _normalize_schedule_date(self, value: str | None, fallback: date) -> date:
+        if not value:
+            return fallback
+        return parse_date(value).date()
+
+    def _normalize_schedule_time(self, raw_class: dict) -> str | None:
+        if raw_class.get("display_time"):
+            return raw_class["display_time"]
+        start_at = raw_class.get("start_at")
+        if not start_at:
+            return None
+        return parse_date(start_at).strftime("%H:%M")
+
+    def normalize_equipe_schedule(self, event: Event, raw_schedule: dict) -> EventScheduleResponse:
+        fallback_date = event.start_date
+        classes_by_date: dict[date, list[dict]] = {}
+
+        for raw_class in raw_schedule.get("meeting_classes") or []:
+            if (
+                not raw_class.get("name")
+                or "id" not in raw_class
+                or raw_class.get("divider") is True
+                or raw_class.get("excluded_from_total") is True
+                or raw_class.get("discipline") == "list"
+            ):
+                continue
+
+            class_date = self._normalize_schedule_date(
+                raw_class.get("date") or raw_class.get("start_at"),
+                fallback_date,
+            )
+            class_no = raw_class.get("class_no")
+            name = raw_class["name"]
+            display_name = f"{class_no} · {name}" if class_no else name
+            class_item = {
+                "id": str(raw_class["id"]),
+                "name": display_name,
+                "class_no": str(class_no) if class_no is not None else None,
+                "date": class_date,
+                "start_time": self._normalize_schedule_time(raw_class),
+                "arena": raw_class.get("arena") or "Main Arena",
+                "discipline": raw_class.get("discipline") or raw_schedule.get("discipline"),
+                "position": raw_class.get("position") or 0,
+            }
+            classes_by_date.setdefault(class_date, []).append(class_item)
+
+        days = [
+            {
+                "date": class_date,
+                "classes": sorted(classes, key=lambda item: item["position"]),
+            }
+            for class_date, classes in sorted(classes_by_date.items())
+        ]
+        equipe_meeting_id = self._get_equipe_meeting_id(event)
+
+        return EventScheduleResponse(
+            event_id=event.id,
+            equipe_meeting_id=equipe_meeting_id or "",
+            classes_count=sum(len(day["classes"]) for day in days),
+            days=days,
+        )
+
+    async def get_event_schedule(
+        self, event_id: uuid.UUID, equipe_client: EquipeClient
+    ) -> EventScheduleResponse:
+        event = await self.get_event(event_id)
+        equipe_meeting_id = self._get_equipe_meeting_id(event)
+        if not equipe_meeting_id:
+            raise NotFoundError("Event does not have an Equipe meeting id")
+
+        raw_schedule = await equipe_client.get_meeting_schedule(equipe_meeting_id)
+        return self.normalize_equipe_schedule(event, raw_schedule)
 
     async def upsert_event_results(
         self, event_id: uuid.UUID, results: list[dict]

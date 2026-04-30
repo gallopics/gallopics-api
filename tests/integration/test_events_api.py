@@ -1,9 +1,9 @@
 import uuid
 from datetime import date
 
-import pytest
+import httpx
+import respx
 
-from app.models.enums import EventStatus, MatchStatus
 from app.models.event import Event, EventResult
 from tests.factories import make_event
 
@@ -98,3 +98,52 @@ async def test_get_event_results_empty(async_client, db_session):
     response = await async_client.get(f"/api/v1/events/{event.id}/results")
     assert response.status_code == 200
     assert response.json() == []
+
+
+@respx.mock
+async def test_get_event_schedule(async_client, db_session):
+    event = await _seed_event(
+        db_session,
+        equipe_id="89761",
+        raw_equipe_payload={"id": 78337, "equipe_id": 89761},
+    )
+    respx.get("https://online.equipe.com/api/v1/meetings/78337/schedule").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": 78337,
+                "discipline": "dressage",
+                "meeting_classes": [
+                    {
+                        "id": 1198540,
+                        "name": "Prix St-Georges · CDI1*",
+                        "start_at": "2026-05-07 15:00:00 +0200",
+                        "display_time": "15:00",
+                        "discipline": "dressage",
+                        "arena": "Green arena",
+                        "position": 0,
+                        "date": "2026-05-07",
+                        "class_no": "D09",
+                    },
+                    {
+                        "id": 1190641,
+                        "name": "Masterlist",
+                        "discipline": "list",
+                        "excluded_from_total": True,
+                        "date": "2026-05-06",
+                    },
+                ],
+            },
+        )
+    )
+
+    response = await async_client.get(f"/api/v1/events/{event.id}/schedule")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["event_id"] == str(event.id)
+    assert data["equipe_meeting_id"] == "78337"
+    assert data["classes_count"] == 1
+    assert data["days"][0]["date"] == "2026-05-07"
+    assert data["days"][0]["classes"][0]["name"] == "D09 · Prix St-Georges · CDI1*"
+    assert data["days"][0]["classes"][0]["arena"] == "Green arena"

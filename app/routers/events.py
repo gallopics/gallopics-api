@@ -5,10 +5,17 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
+from app.integrations.equipe.client import EquipeClient
 from app.models.enums import EventStatus
 from app.schemas import PaginatedResponse
-from app.schemas.event import EventFilters, EventResponse, EventResultResponse
+from app.schemas.event import (
+    EventFilters,
+    EventResponse,
+    EventResultResponse,
+    EventScheduleResponse,
+)
 from app.services.event_service import EventService
 
 router = APIRouter(prefix="/api/v1/events", tags=["events"])
@@ -62,3 +69,14 @@ async def get_event_results(event_id: uuid.UUID, db: AsyncSession = Depends(get_
     service = EventService(db)
     results = await service.get_event_results(event_id)
     return [EventResultResponse.model_validate(r) for r in results]
+
+
+@router.get("/{event_id}/schedule", response_model=EventScheduleResponse)
+async def get_event_schedule(event_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    settings = get_settings()
+    equipe_client = EquipeClient(settings.equipe_base_url)
+    try:
+        service = EventService(db)
+        return await service.get_event_schedule(event_id, equipe_client)
+    finally:
+        await equipe_client.close()
