@@ -27,8 +27,18 @@ def upgrade() -> None:
         op.create_table(
             table_name,
             sa.Column("id", sa.UUID(), nullable=False),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
             sa.Column("photographer_id", sa.UUID(), nullable=False),
             sa.Column("event_id", sa.UUID(), nullable=False),
             sa.ForeignKeyConstraint(["event_id"], ["events.id"]),
