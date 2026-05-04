@@ -10,6 +10,7 @@ from app.integrations.clerk.auth import get_current_user, require_role
 from app.models.enums import PhotoVisibility, UserRole
 from app.models.user import User
 from app.schemas import PaginatedResponse
+from app.schemas.event import EventResponse
 from app.schemas.photographer import (
     CompleteUploadRequest,
     CreateUploadSessionRequest,
@@ -72,6 +73,40 @@ async def get_public_photographer_profile(
     service = PhotographerService(db)
     photographer = await service.get_public_photographer(slug_or_id)
     return PhotographerResponse.model_validate(photographer)
+
+
+@router.get("/bookings", response_model=list[EventResponse])
+async def list_my_event_bookings(
+    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    events = await service.list_booked_events(photographer.id)
+    return [EventResponse.model_validate(event) for event in events]
+
+
+@router.post("/bookings/{event_id}", response_model=EventResponse)
+async def book_event(
+    event_id: uuid.UUID,
+    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    event = await service.book_event(photographer.id, event_id)
+    return EventResponse.model_validate(event)
+
+
+@router.delete("/bookings/{event_id}", status_code=204)
+async def cancel_event_booking(
+    event_id: uuid.UUID,
+    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    await service.cancel_event_booking(photographer.id, event_id)
 
 
 @router.post("/uploads/sessions", response_model=UploadSessionResponse)

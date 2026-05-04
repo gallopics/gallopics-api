@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -34,6 +34,22 @@ class Photographer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     user: Mapped["User"] = relationship("User", back_populates="photographer")
     photos: Mapped[list["Photo"]] = relationship(back_populates="photographer", cascade="all, delete-orphan")
+    event_bookings: Mapped[list["PhotographerEventBooking"]] = relationship(
+        back_populates="photographer",
+        cascade="all, delete-orphan",
+    )
+
+
+class PhotographerEventBooking(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "photographer_event_bookings"
+    __table_args__ = (
+        UniqueConstraint("photographer_id", "event_id", name="uq_photographer_event_booking"),
+    )
+
+    photographer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("photographers.id"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+
+    photographer: Mapped["Photographer"] = relationship(back_populates="event_bookings")
 
 
 class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -14,7 +14,8 @@ from app.models.enums import (
     PhotoVisibility,
     UserRole,
 )
-from app.models.photographer import Photo, Photographer, PhotoTag
+from app.models.event import Event
+from app.models.photographer import Photo, Photographer, PhotographerEventBooking, PhotoTag
 from app.models.user import User
 from app.storage.base import StorageBackend
 
@@ -50,6 +51,50 @@ class PhotographerService:
         if not photographer:
             raise NotFoundError("Photographer profile not found")
         return photographer
+
+    async def list_booked_events(self, photographer_id: uuid.UUID) -> list[Event]:
+        result = await self.db.execute(
+            select(Event)
+            .join(PhotographerEventBooking, PhotographerEventBooking.event_id == Event.id)
+            .where(PhotographerEventBooking.photographer_id == photographer_id)
+            .order_by(Event.start_date.desc())
+        )
+        return list(result.scalars().all())
+
+    async def book_event(self, photographer_id: uuid.UUID, event_id: uuid.UUID) -> Event:
+        event = await self.db.get(Event, event_id)
+        if not event:
+            raise NotFoundError("Event not found")
+
+        result = await self.db.execute(
+            select(PhotographerEventBooking).where(
+                PhotographerEventBooking.photographer_id == photographer_id,
+                PhotographerEventBooking.event_id == event_id,
+            )
+        )
+        booking = result.scalar_one_or_none()
+        if not booking:
+            self.db.add(
+                PhotographerEventBooking(
+                    photographer_id=photographer_id,
+                    event_id=event_id,
+                )
+            )
+            await self.db.flush()
+        return event
+
+    async def cancel_event_booking(self, photographer_id: uuid.UUID, event_id: uuid.UUID) -> None:
+        result = await self.db.execute(
+            select(PhotographerEventBooking).where(
+                PhotographerEventBooking.photographer_id == photographer_id,
+                PhotographerEventBooking.event_id == event_id,
+            )
+        )
+        booking = result.scalar_one_or_none()
+        if not booking:
+            raise NotFoundError("Event booking not found")
+        await self.db.delete(booking)
+        await self.db.flush()
 
     async def upsert_profile(self, user: User, data: dict) -> Photographer:
         display_name = data["display_name"].strip()
