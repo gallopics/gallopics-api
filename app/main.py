@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
-from app.database import create_schema
+from app.database import init_db
 from app.exceptions import GallopicsException
 from app.middleware.error_handler import gallopics_exception_handler, validation_exception_handler
 from app.middleware.logging import RequestLoggingMiddleware, setup_logging
@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
 
     logger = structlog.get_logger()
     await logger.ainfo("startup", app=app.title)
-    await create_schema()
+    await init_db()
     yield
     await logger.ainfo("shutdown", app=app.title)
 
