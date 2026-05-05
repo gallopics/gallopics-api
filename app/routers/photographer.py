@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -124,6 +124,73 @@ async def create_upload_session(
     return UploadSessionResponse(**result)
 
 
+@router.post("/uploads", response_model=list[PhotoResponse])
+async def upload_photos(
+    event_id: str = Form(...),
+    files: list[UploadFile] = File(...),
+    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Direct multipart upload endpoint for browser integration.
+    
+    Accepts files via FormData with:
+    - event_id: the event UUID (string)
+    - files: one or more image files
+    
+    Returns PhotoResponse objects for each uploaded photo.
+    """
+    import uuid as _uuid
+    
+    storage = _get_storage()
+    service = PhotographerService(db, storage)
+    photographer = await service.get_photographer_for_user(user.id)
+    
+    # Validate files
+    valid_files = []
+    for file in files:
+        if file.content_type and file.content_type.startswith("image/"):
+            valid_files.append(file)
+        else:
+            raise BadRequestError(f"File '{file.filename}' is not an image")
+    
+    if not valid_files:
+        raise BadRequestError("No valid image files provided")
+    
+    # Create upload session internally
+    session_id = str(_uuid.uuid4())
+    event_uuid = _uuid.UUID(event_id)
+    
+    # Save files to storage
+    storage_keys = []
+    for file in valid_files:
+        extension = file.filename.split(".")[-1].lower() if "." in file.filename else "jpg"
+        # Normalize content type
+        ext_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+        actual_content_type = ext_map.get(extension, file.content_type or "image/jpeg")
+        
+        storage_key = f"originals/{event_id}/{session_id}/{file.filename}"
+        await storage.write_upload_file(file, storage_key)
+        storage_keys.append(storage_key)
+    
+    # Create Photo records
+    photos = await service.complete_upload(
+        session_id=session_id,
+        photographer_id=photographer.id,
+        event_id=event_uuid,
+        storage_keys=storage_keys,
+    )
+    
+    # Trigger image processing (thumbnails, previews, watermark)
+    from app.services.image_processing import process_photo
+    
+    for photo in photos:
+        await process_photo(photo, storage, db)
+    
+    await db.flush()
+    
+    return [PhotoResponse.model_validate(p) for p in photos]
+
+
 @router.post("/uploads/complete", response_model=list[PhotoResponse])
 async def complete_upload(
     body: CompleteUploadRequest,
@@ -131,11 +198,42 @@ async def complete_upload(
     db: AsyncSession = Depends(get_db),
 ):
     storage = _get_storage()
-    service = PhotographerService(db, storage)
-    await service.get_photographer_for_user(user.id)
-    # In production, we'd look up the session details from cache/DB
-    # For now, return empty since we need the session data
-    return []
+    from app.redis import get_redis
+
+    redis_client = await get_redis()
+    service = PhotographerService(db, storage, redis_client)
+    photographer = await service.get_photographer_for_user(user.id)
+
+    # Retrieve session data from Redis
+    session_data = await service.get_upload_session(body.session_id)
+
+    # Verify photographer matches
+    if session_data["photographer_id"] != str(photographer.id):
+        raise ForbiddenError("Session does not belong to this photographer")
+
+    event_id = uuid.UUID(session_data["event_id"])
+    storage_keys = session_data["storage_keys"]
+
+    # Create Photo records
+    photos = await service.complete_upload(
+        session_id=body.session_id,
+        photographer_id=photographer.id,
+        event_id=event_id,
+        storage_keys=storage_keys,
+    )
+
+    # Commit the transaction so photos are queryable
+    await db.flush()
+
+    # Trigger async image processing
+    from app.services.image_processing import process_photo
+
+    for photo in photos:
+        await process_photo(photo, storage, db)
+
+    await db.flush()
+
+    return [PhotoResponse.model_validate(p) for p in photos]
 
 
 @router.get("/photos", response_model=PaginatedResponse[PhotoResponse])

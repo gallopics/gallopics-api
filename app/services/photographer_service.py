@@ -1,6 +1,8 @@
+import json
 import uuid
 from typing import Optional
 
+import redis.asyncio as aioredis
 from fastapi import UploadFile
 from slugify import slugify
 from sqlalchemy import func, select
@@ -19,11 +21,20 @@ from app.models.photographer import Photo, Photographer, PhotographerEventBookin
 from app.models.user import User
 from app.storage.base import StorageBackend
 
+UPLOAD_SESSION_KEY = "upload_session:{session_id}"
+UPLOAD_SESSION_TTL = 3600  # 1 hour
+
 
 class PhotographerService:
-    def __init__(self, db: AsyncSession, storage: Optional[StorageBackend] = None):
+    def __init__(
+        self,
+        db: AsyncSession,
+        storage: Optional[StorageBackend] = None,
+        redis: Optional[aioredis.Redis] = None,
+    ):
         self.db = db
         self.storage = storage
+        self.redis = redis
 
     async def get_photographer_for_user(self, user_id: uuid.UUID) -> Photographer:
         result = await self.db.execute(
@@ -184,7 +195,31 @@ class PhotographerService:
                 "upload_url": upload_url,
                 "storage_key": storage_key,
             })
+
+        # Persist session data in Redis for later retrieval by complete_upload
+        session_data = {
+            "photographer_id": str(photographer_id),
+            "event_id": str(event_id),
+            "storage_keys": [u["storage_key"] for u in uploads],
+            "filenames": [u["filename"] for u in uploads],
+        }
+        if self.redis:
+            await self.redis.set(
+                UPLOAD_SESSION_KEY.format(session_id=session_id),
+                json.dumps(session_data, default=str),
+                ex=UPLOAD_SESSION_TTL,
+            )
+
         return {"session_id": session_id, "uploads": uploads}
+
+    async def get_upload_session(self, session_id: str) -> dict:
+        """Retrieve a persisted upload session from Redis."""
+        if not self.redis:
+            raise BadRequestError("Redis is not configured")
+        raw = await self.redis.get(UPLOAD_SESSION_KEY.format(session_id=session_id))
+        if raw is None:
+            raise NotFoundError("Upload session not found or expired")
+        return json.loads(raw)
 
     async def complete_upload(
         self,
