@@ -2,10 +2,13 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from PIL import UnidentifiedImageError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.config import get_settings
 from app.database import get_db
+from app.exceptions import BadRequestError, ForbiddenError
 from app.integrations.clerk.auth import get_current_user, require_role
 from app.models.enums import PhotoVisibility, UserRole
 from app.models.user import User
@@ -30,6 +33,15 @@ public_router = APIRouter(prefix="/api/v1/photographers", tags=["photographers"]
 def _get_storage():
     settings = get_settings()
     return get_storage_backend(settings)
+
+
+async def _photo_responses(db: AsyncSession, photos) -> list[PhotoResponse]:
+    responses = []
+    for photo in photos:
+        await db.refresh(photo)
+        set_committed_value(photo, "tags", [])
+        responses.append(PhotoResponse.model_validate(photo))
+    return responses
 
 
 @router.get("/me", response_model=PhotographerResponse)
@@ -158,7 +170,10 @@ async def upload_photos(
     
     # Create upload session internally
     session_id = str(_uuid.uuid4())
-    event_uuid = _uuid.UUID(event_id)
+    try:
+        event_uuid = _uuid.UUID(event_id)
+    except ValueError as exc:
+        raise BadRequestError("Invalid event_id") from exc
     
     # Save files to storage
     storage_keys = []
@@ -183,12 +198,15 @@ async def upload_photos(
     # Trigger image processing (thumbnails, previews, watermark)
     from app.services.image_processing import process_photo
     
-    for photo in photos:
-        await process_photo(photo, storage, db)
+    try:
+        for photo in photos:
+            await process_photo(photo, storage, db)
+    except (OSError, UnidentifiedImageError) as exc:
+        raise BadRequestError("One or more uploaded files are not supported image formats") from exc
     
     await db.flush()
     
-    return [PhotoResponse.model_validate(p) for p in photos]
+    return await _photo_responses(db, photos)
 
 
 @router.post("/uploads/complete", response_model=list[PhotoResponse])
@@ -228,12 +246,15 @@ async def complete_upload(
     # Trigger async image processing
     from app.services.image_processing import process_photo
 
-    for photo in photos:
-        await process_photo(photo, storage, db)
+    try:
+        for photo in photos:
+            await process_photo(photo, storage, db)
+    except (OSError, UnidentifiedImageError) as exc:
+        raise BadRequestError("One or more uploaded files are not supported image formats") from exc
 
     await db.flush()
 
-    return [PhotoResponse.model_validate(p) for p in photos]
+    return await _photo_responses(db, photos)
 
 
 @router.get("/photos", response_model=PaginatedResponse[PhotoResponse])
