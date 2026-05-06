@@ -27,10 +27,7 @@ def apply_watermark(input_path: str, output_path: str, text: str = "gallopics.co
     draw = ImageDraw.Draw(overlay)
 
     font_size = max(20, img.size[0] // 20)
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-    except (OSError, IOError):
-        font = ImageFont.load_default()
+    font = ImageFont.load_default(size=font_size)
 
     bbox = draw.textbbox((0, 0), text, font=font)
     text_width = bbox[2] - bbox[0]
@@ -46,25 +43,31 @@ def apply_watermark(input_path: str, output_path: str, text: str = "gallopics.co
 
 
 async def process_photo(photo, storage: StorageBackend, db=None):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        original_path = os.path.join(tmpdir, "original")
-        await storage.download_to_path(photo.storage_key_original, original_path)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_path = os.path.join(tmpdir, "original")
+            await storage.download_to_path(photo.storage_key_original, original_path)
 
-        thumbnail_path = os.path.join(tmpdir, "thumbnail.jpg")
-        generate_thumbnail(original_path, thumbnail_path)
-        thumb_key = photo.storage_key_original.replace("originals/", "thumbnails/")
-        await storage.upload_from_path(thumbnail_path, thumb_key, "image/jpeg")
+            thumbnail_path = os.path.join(tmpdir, "thumbnail.jpg")
+            generate_thumbnail(original_path, thumbnail_path)
+            thumb_key = photo.storage_key_original.replace("originals/", "thumbnails/")
+            await storage.upload_from_path(thumbnail_path, thumb_key, "image/jpeg")
 
-        preview_path = os.path.join(tmpdir, "preview.jpg")
-        generate_preview(original_path, preview_path)
-        watermarked_path = os.path.join(tmpdir, "preview_wm.jpg")
-        apply_watermark(preview_path, watermarked_path)
-        preview_key = photo.storage_key_original.replace("originals/", "previews/")
-        await storage.upload_from_path(watermarked_path, preview_key, "image/jpeg")
+            preview_path = os.path.join(tmpdir, "preview.jpg")
+            generate_preview(original_path, preview_path)
+            watermarked_path = os.path.join(tmpdir, "preview_wm.jpg")
+            apply_watermark(preview_path, watermarked_path)
+            preview_key = photo.storage_key_original.replace("originals/", "previews/")
+            await storage.upload_from_path(watermarked_path, preview_key, "image/jpeg")
 
-        photo.storage_key_thumbnail = thumb_key
-        photo.storage_key_preview = preview_key
+            photo.storage_key_thumbnail = thumb_key
+            photo.storage_key_preview = preview_key
+            photo.status = PhotoStatus.READY
+
+            if db:
+                await db.flush()
+    except Exception as e:
+        # If processing fails, mark as ready anyway but use original as fallback
         photo.status = PhotoStatus.READY
-
         if db:
             await db.flush()

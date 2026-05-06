@@ -58,6 +58,7 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+        value: "http://localhost:5173,https://gallopics.com,https://www.gallopics.com,https://gallopics-api.onrender.com"
       - key: DEBUG
         sync: false
         value: "false"
