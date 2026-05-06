@@ -25,6 +25,9 @@ class PhotoResponse(BaseModel):
     status: PhotoStatus
     visibility: PhotoVisibility
     tags: list[PhotoTagResponse] = []
+    storage_key_original: Optional[str] = None
+    storage_key_thumbnail: Optional[str] = None
+    storage_key_preview: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

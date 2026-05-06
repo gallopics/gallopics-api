@@ -43,6 +43,24 @@ services:
         sync: false
       - key: KLARNA_PASSWORD
         sync: false
+      - key: STORAGE_BACKEND
+        sync: false
+        value: s3
+      - key: STORAGE_S3_BUCKET
+        sync: false
+      - key: STORAGE_S3_REGION
+        sync: false
+      - key: STORAGE_S3_ACCESS_KEY
+        sync: false
+      - key: STORAGE_S3_SECRET_KEY
+        sync: false
+      - key: STORAGE_S3_ENDPOINT_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: DEBUG
+        sync: false
+        value: "false"
   - type: keyvalue
     name: gallopics-redis
     plan: free
@@ -50,4 +68,3 @@ services:
 databases:
   - name: gallopics-db
     plan: free
-    databaseName: gallopics
