@@ -315,3 +315,7 @@ class PhotographerService:
 
         await self.db.delete(photo)
         await self.db.flush()
+
+    async def get_photo_by_id(self, photo_id: uuid.UUID) -> Optional[Photo]:
+        result = await self.db.execute(select(Photo).where(Photo.id == photo_id))
+        return result.scalar_one_or_none()

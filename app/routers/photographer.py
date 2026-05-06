@@ -294,6 +294,72 @@ async def update_photo(
     return PhotoResponse.model_validate(photo)
 
 
+@router.get("/photos/{photo_id}/preview", include_in_schema=False)
+async def get_photo_preview(
+    photo_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve a photo preview/thumbnail from storage."""
+    from fastapi.responses import StreamingResponse
+    from io import BytesIO
+
+    service = PhotographerService(db)
+    photo = await service.get_photo_by_id(photo_id)
+    if not photo:
+        raise NotFoundError("Photo not found")
+
+    storage_key = photo.storage_key_preview or photo.storage_key_original
+    storage = _get_storage()
+
+    # Download from storage
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_path = f"{tmpdir}/photo.jpg"
+        await storage.download_to_path(storage_key, temp_path)
+        with open(temp_path, "rb") as f:
+            data = f.read()
+
+    return StreamingResponse(
+        BytesIO(data),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=31536000"},
+    )
+
+
+@router.get("/photos/{photo_id}/thumbnail", include_in_schema=False)
+async def get_photo_thumbnail(
+    photo_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve a photo thumbnail from storage."""
+    from fastapi.responses import StreamingResponse
+    from io import BytesIO
+
+    service = PhotographerService(db)
+    photo = await service.get_photo_by_id(photo_id)
+    if not photo:
+        raise NotFoundError("Photo not found")
+
+    storage_key = photo.storage_key_thumbnail
+    if not storage_key:
+        # Fallback to original if no thumbnail exists
+        storage_key = photo.storage_key_original
+    storage = _get_storage()
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_path = f"{tmpdir}/photo.jpg"
+        await storage.download_to_path(storage_key, temp_path)
+        with open(temp_path, "rb") as f:
+            data = f.read()
+
+    return StreamingResponse(
+        BytesIO(data),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=31536000"},
+    )
+
+
 @router.delete("/photos/{photo_id}", status_code=204)
 async def delete_photo(
     photo_id: uuid.UUID,
