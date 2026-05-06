@@ -28,6 +28,7 @@ dependencies = [
     "celery[redis]",
     "PyJWT[crypto]",
     "Pillow",
+    "boto3",
 ]
 
 [project.optional-dependencies]
