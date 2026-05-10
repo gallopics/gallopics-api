@@ -5,9 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.exceptions import ForbiddenError, NotFoundError
+from app.exceptions import NotFoundError
 from app.models.enums import PhotoStatus, PhotoVisibility
-from app.models.photographer import Photo, PhotoTag, Photographer
+from app.models.photographer import Photo, PhotoTag
 from app.storage.base import StorageBackend
 
 
@@ -17,7 +17,11 @@ class GalleryService:
         self.storage = storage
 
     async def get_event_gallery(
-        self, event_id: uuid.UUID, page: int = 1, page_size: int = 20
+        self,
+        event_id: uuid.UUID,
+        page: int = 1,
+        page_size: int = 20,
+        class_id: Optional[uuid.UUID] = None,
     ) -> tuple[list[Photo], int]:
         query = (
             select(Photo)
@@ -28,6 +32,10 @@ class GalleryService:
             )
             .options(selectinload(Photo.tags))
         )
+        if class_id:
+            query = query.where(
+                (Photo.class_id == class_id) | (Photo.class_section_id == class_id)
+            )
 
         count_query = select(func.count()).select_from(query.subquery())
         total = (await self.db.execute(count_query)).scalar_one()
@@ -43,6 +51,7 @@ class GalleryService:
         event_id: uuid.UUID,
         query_str: str,
         tag_type: Optional[str] = None,
+        class_id: Optional[uuid.UUID] = None,
     ) -> list[Photo]:
         query = (
             select(Photo)
@@ -57,6 +66,10 @@ class GalleryService:
         )
         if tag_type:
             query = query.where(PhotoTag.type == tag_type)
+        if class_id:
+            query = query.where(
+                (Photo.class_id == class_id) | (Photo.class_section_id == class_id)
+            )
 
         result = await self.db.execute(query)
         return list(result.scalars().unique().all())

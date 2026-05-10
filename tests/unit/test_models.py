@@ -1,23 +1,16 @@
-import uuid
-
-from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.enums import (
     EventStatus,
     MatchStatus,
     OrderStatus,
-    PaymentTransactionStatus,
-    PaymentTransactionType,
     PhotoStatus,
     PhotoTagType,
     PhotoVisibility,
-    PhotographerStatus,
     UserRole,
 )
 from app.models.event import Event, EventResult
 from app.models.order import Order, PaymentTransaction
-from app.models.photographer import Photo, PhotoOrder, PhotoTag, Photographer
+from app.models.photographer import Photo, Photographer, PhotoOrder, PhotoTag
 from app.models.user import User
-
 
 # --- Enum tests ---
 
@@ -133,6 +126,11 @@ def test_photo_default_status():
     assert col.default.arg == PhotoStatus.PROCESSING
 
 
+def test_photo_has_class_ids():
+    cols = {c.name for c in Photo.__table__.columns}
+    assert {"class_id", "class_section_id"}.issubset(cols)
+
+
 def test_event_default_match_status():
     col = Event.__table__.columns["match_status"]
     assert col.default.arg == MatchStatus.UNMATCHED
@@ -144,7 +142,6 @@ def test_event_default_match_status():
 async def test_all_tables_created(db_session):
     from sqlalchemy import inspect
 
-    from app.models.base import Base
     from tests.conftest import test_engine
 
     async with test_engine.connect() as conn:

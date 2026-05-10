@@ -19,6 +19,8 @@ class PhotoResponse(BaseModel):
 
     id: uuid.UUID
     event_id: uuid.UUID
+    class_id: Optional[uuid.UUID] = None
+    class_section_id: Optional[uuid.UUID] = None
     photographer_id: uuid.UUID
     price: int
     currency: str
@@ -66,6 +68,8 @@ class FileInfo(BaseModel):
 
 class CreateUploadSessionRequest(BaseModel):
     event_id: uuid.UUID
+    class_id: Optional[uuid.UUID] = None
+    class_section_id: Optional[uuid.UUID] = None
     files: list[FileInfo]
 
 
