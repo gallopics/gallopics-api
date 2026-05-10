@@ -89,6 +89,38 @@ async def test_gallery_pagination(async_client, db_session):
     assert response.status_code == 200
 
 
+async def test_gallery_filters_by_class_id(async_client, db_session):
+    event, p1, _, _ = await _seed_gallery(db_session)
+    other_class_id = uuid.uuid4()
+    other_photo = Photo(
+        event_id=event.id,
+        class_id=other_class_id,
+        class_section_id=other_class_id,
+        photographer_id=p1.photographer_id,
+        storage_key_original="originals/other-class.jpg",
+        price=10000,
+        status=PhotoStatus.READY,
+        visibility=PhotoVisibility.PUBLISHED,
+    )
+    db_session.add(other_photo)
+    await db_session.flush()
+
+    class_id = uuid.uuid4()
+    p1.class_id = class_id
+    p1.class_section_id = class_id
+    await db_session.flush()
+
+    response = await async_client.get(
+        f"/api/v1/events/{event.id}/gallery?class_id={class_id}"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["id"] == str(p1.id)
+    assert data["items"][0]["class_id"] == str(class_id)
+
+
 async def test_search_by_rider(async_client, db_session):
     event, _, _, _ = await _seed_gallery(db_session)
     response = await async_client.get(f"/api/v1/events/{event.id}/gallery/search?q=Anna")
@@ -100,6 +132,26 @@ async def test_search_by_rider(async_client, db_session):
 async def test_search_by_horse(async_client, db_session):
     event, _, _, _ = await _seed_gallery(db_session)
     response = await async_client.get(f"/api/v1/events/{event.id}/gallery/search?q=Thunder")
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+async def test_search_filters_by_class_id(async_client, db_session):
+    event, p1, _, _ = await _seed_gallery(db_session)
+    class_id = uuid.uuid4()
+    p1.class_id = class_id
+    p1.class_section_id = class_id
+    await db_session.flush()
+
+    response = await async_client.get(
+        f"/api/v1/events/{event.id}/gallery/search?q=Anna&class_id={uuid.uuid4()}"
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+
+    response = await async_client.get(
+        f"/api/v1/events/{event.id}/gallery/search?q=Anna&class_id={class_id}"
+    )
     assert response.status_code == 200
     assert len(response.json()) == 1
 

@@ -12,8 +12,8 @@ from app.models.enums import (
     PhotoVisibility,
 )
 from app.schemas.event import EventFilters, EventResponse, EventResultResponse
-from app.schemas.order import OrderResponse, PaymentTransactionResponse
-from app.schemas.photographer import PhotoResponse, PhotoTagResponse
+from app.schemas.order import OrderResponse
+from app.schemas.photographer import PhotoResponse
 from app.schemas.user import UserResponse
 
 
@@ -77,6 +77,8 @@ class _FakeTag:
 class _FakePhoto:
     id = uuid.uuid4()
     event_id = uuid.uuid4()
+    class_id = uuid.uuid4()
+    class_section_id = class_id
     photographer_id = uuid.uuid4()
     price = 10000
     currency = "SEK"
@@ -125,6 +127,8 @@ def test_photo_response_includes_tags():
     assert len(resp.tags) == 1
     assert resp.tags[0].type == PhotoTagType.RIDER
     assert resp.tags[0].value == "Anna"
+    assert resp.class_id == _FakePhoto.class_id
+    assert resp.class_section_id == _FakePhoto.class_section_id
 
 
 def test_event_result_response_from_orm():

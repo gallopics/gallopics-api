@@ -182,6 +182,8 @@ class PhotographerService:
         photographer_id: uuid.UUID,
         event_id: uuid.UUID,
         files: list[dict],
+        class_id: Optional[uuid.UUID] = None,
+        class_section_id: Optional[uuid.UUID] = None,
     ) -> dict:
         session_id = str(uuid.uuid4())
         uploads = []
@@ -200,6 +202,8 @@ class PhotographerService:
         session_data = {
             "photographer_id": str(photographer_id),
             "event_id": str(event_id),
+            "class_id": str(class_id) if class_id else None,
+            "class_section_id": str(class_section_id) if class_section_id else None,
             "storage_keys": [u["storage_key"] for u in uploads],
             "filenames": [u["filename"] for u in uploads],
         }
@@ -227,12 +231,16 @@ class PhotographerService:
         photographer_id: uuid.UUID,
         event_id: uuid.UUID,
         storage_keys: list[str],
+        class_id: Optional[uuid.UUID] = None,
+        class_section_id: Optional[uuid.UUID] = None,
         price: int = 10000,
     ) -> list[Photo]:
         photos = []
         for key in storage_keys:
             photo = Photo(
                 event_id=event_id,
+                class_id=class_id,
+                class_section_id=class_section_id,
                 photographer_id=photographer_id,
                 storage_key_original=key,
                 price=price,
@@ -248,6 +256,7 @@ class PhotographerService:
         self,
         photographer_id: uuid.UUID,
         event_id: Optional[uuid.UUID] = None,
+        class_id: Optional[uuid.UUID] = None,
         visibility: Optional[PhotoVisibility] = None,
         page: int = 1,
         page_size: int = 20,
@@ -259,6 +268,10 @@ class PhotographerService:
         )
         if event_id:
             query = query.where(Photo.event_id == event_id)
+        if class_id:
+            query = query.where(
+                (Photo.class_id == class_id) | (Photo.class_section_id == class_id)
+            )
         if visibility:
             query = query.where(Photo.visibility == visibility)
 

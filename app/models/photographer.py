@@ -56,6 +56,8 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "photos"
 
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    class_id: Mapped[Optional[uuid.UUID]] = mapped_column(index=True)
+    class_section_id: Mapped[Optional[uuid.UUID]] = mapped_column(index=True)
     photographer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("photographers.id"), index=True)
     storage_key_original: Mapped[Optional[str]] = mapped_column(String)
     storage_key_preview: Mapped[Optional[str]] = mapped_column(String)
