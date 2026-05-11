@@ -121,6 +121,24 @@ async def test_gallery_filters_by_class_id(async_client, db_session):
     assert data["items"][0]["class_id"] == str(class_id)
 
 
+async def test_gallery_filters_by_external_event_class_id(async_client, db_session):
+    event, p1, _, _ = await _seed_gallery(db_session)
+    p1.event_class_id = "1198540"
+    p1.class_name = "D09 · Prix St-Georges · CDI1*"
+    await db_session.flush()
+
+    response = await async_client.get(
+        f"/api/v1/events/{event.id}/gallery?class_id=1198540"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["id"] == str(p1.id)
+    assert data["items"][0]["event_class_id"] == "1198540"
+    assert data["items"][0]["class_name"] == "D09 · Prix St-Georges · CDI1*"
+
+
 async def test_search_by_rider(async_client, db_session):
     event, _, _, _ = await _seed_gallery(db_session)
     response = await async_client.get(f"/api/v1/events/{event.id}/gallery/search?q=Anna")

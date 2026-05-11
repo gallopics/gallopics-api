@@ -21,7 +21,7 @@ class GalleryService:
         event_id: uuid.UUID,
         page: int = 1,
         page_size: int = 20,
-        class_id: Optional[uuid.UUID] = None,
+        class_id: Optional[str] = None,
     ) -> tuple[list[Photo], int]:
         query = (
             select(Photo)
@@ -33,9 +33,16 @@ class GalleryService:
             .options(selectinload(Photo.tags))
         )
         if class_id:
-            query = query.where(
-                (Photo.class_id == class_id) | (Photo.class_section_id == class_id)
-            )
+            try:
+                class_uuid = uuid.UUID(class_id)
+            except ValueError:
+                query = query.where(Photo.event_class_id == class_id)
+            else:
+                query = query.where(
+                    (Photo.class_id == class_uuid)
+                    | (Photo.class_section_id == class_uuid)
+                    | (Photo.event_class_id == class_id)
+                )
 
         count_query = select(func.count()).select_from(query.subquery())
         total = (await self.db.execute(count_query)).scalar_one()
@@ -51,7 +58,7 @@ class GalleryService:
         event_id: uuid.UUID,
         query_str: str,
         tag_type: Optional[str] = None,
-        class_id: Optional[uuid.UUID] = None,
+        class_id: Optional[str] = None,
     ) -> list[Photo]:
         query = (
             select(Photo)
@@ -67,9 +74,16 @@ class GalleryService:
         if tag_type:
             query = query.where(PhotoTag.type == tag_type)
         if class_id:
-            query = query.where(
-                (Photo.class_id == class_id) | (Photo.class_section_id == class_id)
-            )
+            try:
+                class_uuid = uuid.UUID(class_id)
+            except ValueError:
+                query = query.where(Photo.event_class_id == class_id)
+            else:
+                query = query.where(
+                    (Photo.class_id == class_uuid)
+                    | (Photo.class_section_id == class_uuid)
+                    | (Photo.event_class_id == class_id)
+                )
 
         result = await self.db.execute(query)
         return list(result.scalars().unique().all())

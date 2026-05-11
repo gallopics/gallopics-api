@@ -184,6 +184,8 @@ class PhotographerService:
         files: list[dict],
         class_id: Optional[uuid.UUID] = None,
         class_section_id: Optional[uuid.UUID] = None,
+        event_class_id: Optional[str] = None,
+        class_name: Optional[str] = None,
     ) -> dict:
         session_id = str(uuid.uuid4())
         uploads = []
@@ -204,6 +206,8 @@ class PhotographerService:
             "event_id": str(event_id),
             "class_id": str(class_id) if class_id else None,
             "class_section_id": str(class_section_id) if class_section_id else None,
+            "event_class_id": event_class_id,
+            "class_name": class_name,
             "storage_keys": [u["storage_key"] for u in uploads],
             "filenames": [u["filename"] for u in uploads],
         }
@@ -233,6 +237,8 @@ class PhotographerService:
         storage_keys: list[str],
         class_id: Optional[uuid.UUID] = None,
         class_section_id: Optional[uuid.UUID] = None,
+        event_class_id: Optional[str] = None,
+        class_name: Optional[str] = None,
         price: int = 10000,
     ) -> list[Photo]:
         photos = []
@@ -241,6 +247,8 @@ class PhotographerService:
                 event_id=event_id,
                 class_id=class_id,
                 class_section_id=class_section_id,
+                event_class_id=event_class_id,
+                class_name=class_name,
                 photographer_id=photographer_id,
                 storage_key_original=key,
                 price=price,
@@ -256,7 +264,7 @@ class PhotographerService:
         self,
         photographer_id: uuid.UUID,
         event_id: Optional[uuid.UUID] = None,
-        class_id: Optional[uuid.UUID] = None,
+        class_id: Optional[str] = None,
         visibility: Optional[PhotoVisibility] = None,
         page: int = 1,
         page_size: int = 20,
@@ -269,9 +277,16 @@ class PhotographerService:
         if event_id:
             query = query.where(Photo.event_id == event_id)
         if class_id:
-            query = query.where(
-                (Photo.class_id == class_id) | (Photo.class_section_id == class_id)
-            )
+            try:
+                class_uuid = uuid.UUID(class_id)
+            except ValueError:
+                query = query.where(Photo.event_class_id == class_id)
+            else:
+                query = query.where(
+                    (Photo.class_id == class_uuid)
+                    | (Photo.class_section_id == class_uuid)
+                    | (Photo.event_class_id == class_id)
+                )
         if visibility:
             query = query.where(Photo.visibility == visibility)
 

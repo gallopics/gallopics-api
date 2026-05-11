@@ -101,6 +101,43 @@ async def test_upload_photos_stores_class_ids(
     assert data[0]["class_section_id"] == str(class_id)
 
 
+async def test_upload_photos_stores_external_event_class_id(
+    async_client,
+    db_session,
+    photographer_user,
+    photographer_auth_headers,
+    monkeypatch,
+    tmp_path,
+):
+    import app.routers.photographer as photographer_router
+
+    await _seed_photographer(db_session, photographer_user)
+    event = await _seed_event(db_session, name="Equipe Class Upload Event")
+    monkeypatch.setattr(
+        photographer_router,
+        "_get_storage",
+        lambda: LocalStorageBackend(str(tmp_path / "uploads")),
+    )
+
+    response = await async_client.post(
+        "/api/v1/photographer/uploads",
+        headers=photographer_auth_headers,
+        data={
+            "event_id": str(event.id),
+            "event_class_id": "1198540",
+            "class_name": "D09 · Prix St-Georges · CDI1*",
+        },
+        files={"files": ("test.png", PNG_1X1, "image/png")},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data[0]["class_id"] is None
+    assert data[0]["class_section_id"] is None
+    assert data[0]["event_class_id"] == "1198540"
+    assert data[0]["class_name"] == "D09 · Prix St-Georges · CDI1*"
+
+
 async def test_upload_photos_rejects_invalid_event_id(
     async_client,
     db_session,

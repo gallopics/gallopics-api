@@ -16,7 +16,7 @@ router = APIRouter(tags=["gallery"])
 @router.get("/api/v1/events/{event_id}/gallery", response_model=PaginatedResponse[PhotoResponse])
 async def get_gallery(
     event_id: uuid.UUID,
-    class_id: Optional[uuid.UUID] = None,
+    class_id: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -36,7 +36,7 @@ async def search_gallery(
     event_id: uuid.UUID,
     q: str = Query(...),
     tag_type: Optional[PhotoTagType] = None,
-    class_id: Optional[uuid.UUID] = None,
+    class_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     service = GalleryService(db)
