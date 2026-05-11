@@ -136,6 +136,8 @@ async def create_upload_session(
         [f.model_dump() for f in body.files],
         body.class_id,
         body.class_section_id,
+        body.event_class_id,
+        body.class_name,
     )
     return UploadSessionResponse(**result)
 
@@ -145,6 +147,8 @@ async def upload_photos(
     event_id: str = Form(...),
     class_id: Optional[str] = Form(None),
     class_section_id: Optional[str] = Form(None),
+    event_class_id: Optional[str] = Form(None),
+    class_name: Optional[str] = Form(None),
     files: list[UploadFile] = File(...),
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
     db: AsyncSession = Depends(get_db),
@@ -209,6 +213,8 @@ async def upload_photos(
         storage_keys=storage_keys,
         class_id=class_uuid,
         class_section_id=class_section_uuid or class_uuid,
+        event_class_id=event_class_id,
+        class_name=class_name,
     )
 
     # Trigger image processing (thumbnails, previews, watermark)
@@ -262,6 +268,8 @@ async def complete_upload(
         storage_keys=storage_keys,
         class_id=class_id,
         class_section_id=class_section_id,
+        event_class_id=session_data.get("event_class_id"),
+        class_name=session_data.get("class_name"),
     )
 
     # Commit the transaction so photos are queryable
@@ -285,7 +293,7 @@ async def complete_upload(
 async def list_my_photos(
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
     event_id: Optional[uuid.UUID] = None,
-    class_id: Optional[uuid.UUID] = None,
+    class_id: Optional[str] = None,
     visibility: Optional[PhotoVisibility] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
