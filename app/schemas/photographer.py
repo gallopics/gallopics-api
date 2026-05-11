@@ -98,6 +98,14 @@ class UpdatePhotoRequest(BaseModel):
     tags: Optional[list[PhotoTagResponse]] = None
 
 
+class HighlightsResponse(BaseModel):
+    highlights: list[str]
+
+
+class UpdateHighlightsRequest(BaseModel):
+    photo_ids: list[str]
+
+
 class PhotoOrderResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

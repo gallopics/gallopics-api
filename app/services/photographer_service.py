@@ -107,6 +107,11 @@ class PhotographerService:
         await self.db.delete(booking)
         await self.db.flush()
 
+    async def update_highlights(self, photographer: Photographer, photo_ids: list[str]) -> Photographer:
+        photographer.highlights = photo_ids
+        await self.db.flush()
+        return photographer
+
     async def upsert_profile(self, user: User, data: dict) -> Photographer:
         display_name = data["display_name"].strip()
         requested_slug = data.get("slug") or display_name
