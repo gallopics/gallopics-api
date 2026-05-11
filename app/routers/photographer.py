@@ -17,10 +17,8 @@ from app.schemas.event import EventResponse
 from app.schemas.photographer import (
     CompleteUploadRequest,
     CreateUploadSessionRequest,
-    HighlightsResponse,
     PhotographerResponse,
     PhotoResponse,
-    UpdateHighlightsRequest,
     UpdatePhotoRequest,
     UploadSessionResponse,
     UpsertPhotographerProfileRequest,
@@ -121,38 +119,6 @@ async def cancel_event_booking(
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
     await service.cancel_event_booking(photographer.id, event_id)
-
-
-@router.get("/highlights", response_model=HighlightsResponse)
-async def get_highlights(
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
-    db: AsyncSession = Depends(get_db),
-):
-    service = PhotographerService(db)
-    photographer = await service.get_photographer_for_user(user.id)
-    return HighlightsResponse(highlights=photographer.highlights or [])
-
-
-@router.put("/highlights", response_model=HighlightsResponse)
-async def update_highlights(
-    body: UpdateHighlightsRequest,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
-    db: AsyncSession = Depends(get_db),
-):
-    service = PhotographerService(db)
-    photographer = await service.get_photographer_for_user(user.id)
-    photographer = await service.update_highlights(photographer, body.photo_ids)
-    return HighlightsResponse(highlights=photographer.highlights or [])
-
-
-@public_router.get("/{slug_or_id}/highlights", response_model=HighlightsResponse)
-async def get_public_photographer_highlights(
-    slug_or_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    service = PhotographerService(db)
-    photographer = await service.get_public_photographer(slug_or_id)
-    return HighlightsResponse(highlights=photographer.highlights or [])
 
 
 @router.post("/uploads/sessions", response_model=UploadSessionResponse)
