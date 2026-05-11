@@ -108,6 +108,28 @@ class PhotographerService:
         await self.db.flush()
 
     async def update_highlights(self, photographer: Photographer, photo_ids: list[str]) -> Photographer:
+        if len(photo_ids) > 10:
+            raise BadRequestError("Maximum 10 highlights allowed")
+
+        parsed_photo_ids = []
+        for photo_id in photo_ids:
+            try:
+                parsed_photo_ids.append(uuid.UUID(photo_id))
+            except ValueError as exc:
+                raise BadRequestError("Invalid photo_id") from exc
+
+        if parsed_photo_ids:
+            result = await self.db.execute(
+                select(Photo.id).where(
+                    Photo.id.in_(parsed_photo_ids),
+                    Photo.photographer_id == photographer.id,
+                )
+            )
+            found_photo_ids = {str(photo_id) for photo_id in result.scalars().all()}
+            missing_photo_ids = [photo_id for photo_id in photo_ids if photo_id not in found_photo_ids]
+            if missing_photo_ids:
+                raise BadRequestError("One or more highlight photos do not belong to this photographer")
+
         photographer.highlights = photo_ids
         await self.db.flush()
         return photographer

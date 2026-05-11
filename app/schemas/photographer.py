@@ -48,6 +48,7 @@ class PhotographerResponse(BaseModel):
     avatar_url: Optional[str] = None
     phone: Optional[str] = None
     is_available_to_hire: bool
+    highlights: list[str] = []
     status: str
     created_at: datetime
     updated_at: datetime
