@@ -3,7 +3,8 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -31,6 +32,10 @@ class Photographer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     phone: Mapped[Optional[str]] = mapped_column(String)
     is_available_to_hire: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[PhotographerStatus] = mapped_column(default=PhotographerStatus.PENDING)
+    highlights: Mapped[list[str]] = mapped_column(
+        ARRAY(String).with_variant(JSON, "sqlite"),
+        default=list,
+    )
 
     user: Mapped["User"] = relationship("User", back_populates="photographer")
     photos: Mapped[list["Photo"]] = relationship(back_populates="photographer", cascade="all, delete-orphan")
