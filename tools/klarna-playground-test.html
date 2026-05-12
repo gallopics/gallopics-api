@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Klarna Playground Test</title>
+    <style>
+      body {
+        max-width: 760px;
+        margin: 32px auto;
+        padding: 0 16px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      label {
+        display: block;
+        margin: 16px 0 6px;
+        font-weight: 600;
+      }
+
+      input,
+      textarea,
+      select,
+      button {
+        box-sizing: border-box;
+        width: 100%;
+        font: inherit;
+      }
+
+      input,
+      textarea,
+      select {
+        padding: 10px;
+        border: 1px solid #c7c7c7;
+        border-radius: 6px;
+      }
+
+      textarea {
+        min-height: 110px;
+      }
+
+      button {
+        margin-top: 16px;
+        padding: 12px 14px;
+        border: 0;
+        border-radius: 6px;
+        background: #111;
+        color: white;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      #klarna-payments-container {
+        margin-top: 24px;
+      }
+
+      pre {
+        overflow: auto;
+        padding: 12px;
+        border-radius: 6px;
+        background: #f4f4f4;
+      }
+    </style>
+    <script src="https://x.klarnacdn.net/kp/lib/v1/api.js" async></script>
+  </head>
+  <body>
+    <h1>Klarna Playground Test</h1>
+
+    <label for="apiBase">API base URL</label>
+    <input id="apiBase" value="http://localhost:8000" />
+
+    <label for="category">Payment method category</label>
+    <select id="category">
+      <option value="pay_later">pay_later</option>
+      <option value="pay_now">pay_now</option>
+    </select>
+
+    <button id="createSession">1. Create Klarna session</button>
+
+    <label for="clientToken">client_token</label>
+    <textarea id="clientToken" placeholder="Created automatically, or paste one here"></textarea>
+
+    <label for="orderId">order_id</label>
+    <input id="orderId" placeholder="Created automatically, or paste one here" />
+
+    <button id="loadWidget" disabled>2. Load Klarna widget</button>
+    <div id="klarna-payments-container"></div>
+
+    <button id="authorize" disabled>3. Authorize and create backend order</button>
+
+    <h2>Output</h2>
+    <pre id="output"></pre>
+
+    <script>
+      const output = document.getElementById("output");
+      const createSessionButton = document.getElementById("createSession");
+      const loadWidgetButton = document.getElementById("loadWidget");
+      const authorizeButton = document.getElementById("authorize");
+      const clientTokenInput = document.getElementById("clientToken");
+      const orderIdInput = document.getElementById("orderId");
+      const apiBaseInput = document.getElementById("apiBase");
+      const categoryInput = document.getElementById("category");
+
+      function log(value) {
+        output.textContent = JSON.stringify(value, null, 2);
+        console.log(value);
+      }
+
+      function apiBase() {
+        return apiBaseInput.value.replace(/\/$/, "");
+      }
+
+      createSessionButton.onclick = async function () {
+        const response = await fetch(`${apiBase()}/api/v1/checkout/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            line_items: [
+              {
+                name: "Test photo",
+                quantity: 1,
+                unit_price: 1000,
+                total_amount: 1000,
+                type: "digital",
+                tax_rate: 0,
+                total_tax_amount: 0
+              }
+            ],
+            idempotency_key: `klarna-browser-test-${Date.now()}`
+          })
+        });
+        const data = await response.json();
+        log(data);
+
+        if (!response.ok) {
+          return;
+        }
+
+        clientTokenInput.value = data.client_token;
+        orderIdInput.value = data.order_id;
+        loadWidgetButton.disabled = false;
+      };
+
+      loadWidgetButton.onclick = function () {
+        const clientToken = clientTokenInput.value.trim();
+        const category = categoryInput.value;
+
+        Klarna.Payments.init({ client_token: clientToken });
+        Klarna.Payments.load(
+          {
+            container: "#klarna-payments-container",
+            payment_method_category: category
+          },
+          {},
+          function (response) {
+            log({ step: "load", response });
+            authorizeButton.disabled = !response.show_form;
+          }
+        );
+      };
+
+      authorizeButton.onclick = function () {
+        const category = categoryInput.value;
+        Klarna.Payments.authorize(
+          { payment_method_category: category },
+          {},
+          async function (response) {
+            log({ step: "authorize", response });
+
+            if (!response.approved || !response.authorization_token) {
+              return;
+            }
+
+            const apiResponse = await fetch(`${apiBase()}/api/v1/checkout/authorize`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                order_id: orderIdInput.value.trim(),
+                authorization_token: response.authorization_token
+              })
+            });
+            log({
+              step: "backend-authorize",
+              status: apiResponse.status,
+              response: await apiResponse.json()
+            });
+          }
+        );
+      };
+    </script>
+  </body>
+</html>

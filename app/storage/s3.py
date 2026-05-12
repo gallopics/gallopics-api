@@ -1,6 +1,3 @@
-import io
-from typing import Optional
-
 import boto3
 from botocore.exceptions import ClientError
 from fastapi import UploadFile
@@ -12,9 +9,9 @@ class S3StorageBackend(StorageBackend):
     def __init__(self, settings):
         self.bucket = settings.storage_s3_bucket
         self.region = settings.storage_s3_region
-        self.endpoint_url = settings.storage_s3_endpoint_url or None
-        self.access_key = settings.storage_s3_access_key or None
-        self.secret_key = settings.storage_s3_secret_key or None
+        self.endpoint_url = getattr(settings, "storage_s3_endpoint_url", "") or None
+        self.access_key = getattr(settings, "storage_s3_access_key", "") or None
+        self.secret_key = getattr(settings, "storage_s3_secret_key", "") or None
         self._s3 = None
 
     def _get_s3(self):

@@ -1,5 +1,13 @@
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+
+def _should_retry(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return False
 
 
 class KlarnaClient:
@@ -14,7 +22,7 @@ class KlarnaClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
+        retry=retry_if_exception(_should_retry),
     )
     async def create_session(self, payload: dict) -> dict:
         resp = await self._client.post("/payments/v1/sessions", json=payload)
@@ -24,7 +32,7 @@ class KlarnaClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
+        retry=retry_if_exception(_should_retry),
     )
     async def create_order(self, authorization_token: str, payload: dict) -> dict:
         resp = await self._client.post(
@@ -36,7 +44,7 @@ class KlarnaClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
+        retry=retry_if_exception(_should_retry),
     )
     async def capture(self, order_id: str, payload: dict) -> None:
         resp = await self._client.post(
@@ -47,7 +55,7 @@ class KlarnaClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
+        retry=retry_if_exception(_should_retry),
     )
     async def refund(self, order_id: str, payload: dict) -> None:
         resp = await self._client.post(
@@ -58,7 +66,7 @@ class KlarnaClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
+        retry=retry_if_exception(_should_retry),
     )
     async def cancel(self, order_id: str) -> None:
         resp = await self._client.post(
