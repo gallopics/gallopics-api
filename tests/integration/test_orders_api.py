@@ -1,9 +1,32 @@
 import uuid
 
+from app.main import app
 from app.models.enums import OrderStatus
 from app.models.order import Order
-from app.models.user import User
-from tests.factories import make_user
+from app.routers.orders import get_klarna_client
+
+
+class FakeKlarnaClient:
+    def __init__(self):
+        self.captures = []
+        self.refunds = []
+        self.cancellations = []
+
+    async def capture(self, order_id, payload):
+        self.captures.append((order_id, payload))
+
+    async def refund(self, order_id, payload):
+        self.refunds.append((order_id, payload))
+
+    async def cancel(self, order_id):
+        self.cancellations.append(order_id)
+
+
+def _override_klarna(fake):
+    async def _dependency():
+        yield fake
+
+    app.dependency_overrides[get_klarna_client] = _dependency
 
 
 async def _create_order(db_session, user_id, status=OrderStatus.AUTHORIZED):
@@ -41,6 +64,24 @@ async def test_capture_success(async_client, admin_auth_headers, db_session, adm
     response = await async_client.post(f"/api/v1/orders/{order.id}/capture", headers=admin_auth_headers)
     assert response.status_code == 200
     assert response.json()["status"] == "captured"
+
+
+async def test_capture_calls_klarna_for_klarna_order(async_client, admin_auth_headers, db_session, admin_user):
+    fake = FakeKlarnaClient()
+    _override_klarna(fake)
+    order = await _create_order(db_session, admin_user.id, status=OrderStatus.AUTHORIZED)
+    order.klarna_order_id = "klarna-order-1"
+    await db_session.flush()
+
+    response = await async_client.post(f"/api/v1/orders/{order.id}/capture", headers=admin_auth_headers)
+
+    assert response.status_code == 200
+    assert fake.captures == [
+        (
+            "klarna-order-1",
+            {"captured_amount": 5000, "description": f"Capture for order {order.id}"},
+        )
+    ]
 
 
 async def test_capture_invalid_state(async_client, admin_auth_headers, db_session, admin_user):

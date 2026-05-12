@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.exceptions import ConflictError, NotFoundError
+from app.exceptions import NotFoundError
 from app.models.enums import OrderStatus, PaymentTransactionStatus, PaymentTransactionType
 from app.models.order import Order, PaymentTransaction
 
@@ -41,7 +41,10 @@ class OrderService:
 
     async def get_order(self, order_id: uuid.UUID) -> Order:
         result = await self.db.execute(
-            select(Order).where(Order.id == order_id).options(selectinload(Order.transactions))
+            select(Order)
+            .where(Order.id == order_id)
+            .options(selectinload(Order.transactions))
+            .execution_options(populate_existing=True)
         )
         order = result.scalar_one_or_none()
         if not order:
@@ -60,6 +63,13 @@ class OrderService:
     async def update_order_status(self, order_id: uuid.UUID, new_status: OrderStatus) -> Order:
         order = await self.get_order(order_id)
         order.status = new_status
+        await self.db.flush()
+        await self.db.refresh(order)
+        return order
+
+    async def set_klarna_order_id(self, order_id: uuid.UUID, klarna_order_id: str) -> Order:
+        order = await self.get_order(order_id)
+        order.klarna_order_id = klarna_order_id
         await self.db.flush()
         await self.db.refresh(order)
         return order
