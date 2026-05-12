@@ -12,7 +12,9 @@ from app.integrations.equipe.client import EquipeClient
 from app.integrations.equipe.normalizer import normalize_equipe_meeting
 from app.integrations.tdb.client import TDBClient
 from app.integrations.tdb.normalizer import normalize_tdb_event
+from app.models.enums import PhotoStatus
 from app.models.event import Event, EventResult
+from app.models.photographer import Photo
 from app.schemas.event import EventFilters, EventScheduleResponse
 
 logger = structlog.get_logger()
@@ -25,7 +27,16 @@ class EventService:
     async def list_events(
         self, filters: EventFilters, page: int = 1, page_size: int = 20
     ) -> tuple[list[Event], int]:
-        query = select(Event)
+        photo_counts = (
+            select(Photo.event_id, func.count(Photo.id).label("photo_count"))
+            .where(Photo.status == PhotoStatus.READY)
+            .group_by(Photo.event_id)
+            .subquery()
+        )
+        query = select(Event, func.coalesce(photo_counts.c.photo_count, 0)).outerjoin(
+            photo_counts,
+            Event.id == photo_counts.c.event_id,
+        )
 
         if filters.date_from:
             query = query.where(Event.start_date >= filters.date_from)
@@ -45,6 +56,13 @@ class EventService:
             query = query.where(Event.is_sustainable == filters.is_sustainable)
         if filters.search:
             query = query.where(Event.name.ilike(f"%{filters.search}%"))
+        if filters.has_photos is True:
+            query = query.where(photo_counts.c.photo_count > 0)
+        elif filters.has_photos is False:
+            query = query.where(
+                (photo_counts.c.photo_count == 0)
+                | (photo_counts.c.photo_count.is_(None))
+            )
 
         count_query = select(func.count()).select_from(query.subquery())
         total = (await self.db.execute(count_query)).scalar_one()
@@ -52,7 +70,10 @@ class EventService:
         query = query.order_by(Event.start_date.desc())
         query = query.offset((page - 1) * page_size).limit(page_size)
         result = await self.db.execute(query)
-        items = list(result.scalars().all())
+        items = []
+        for event, photo_count in result.all():
+            setattr(event, "photo_count", int(photo_count or 0))
+            items.append(event)
 
         return items, total
 

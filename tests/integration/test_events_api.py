@@ -4,7 +4,10 @@ from datetime import date
 import httpx
 import respx
 
+from app.models.enums import PhotographerStatus, PhotoStatus, PhotoVisibility, UserRole
 from app.models.event import Event, EventResult
+from app.models.photographer import Photo, Photographer
+from app.models.user import User
 from tests.factories import make_event
 
 
@@ -64,6 +67,45 @@ async def test_list_events_filter_search(async_client, db_session):
     await _seed_event(db_session, name="Malmö Open")
     response = await async_client.get("/api/v1/events?search=Stockholm")
     assert response.json()["total"] == 1
+
+
+async def test_list_events_filter_has_photos(async_client, db_session):
+    event_with_photo = await _seed_event(db_session, name="Ready Photo Event")
+    await _seed_event(db_session, name="No Photo Event")
+    user = User(
+        clerk_user_id="clerk_event_photo_user",
+        email="event-photo@test.com",
+        role=UserRole.PHOTOGRAPHER,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    photographer = Photographer(
+        user_id=user.id,
+        slug="event-photo-photographer",
+        display_name="Event Photo Photographer",
+        status=PhotographerStatus.APPROVED,
+    )
+    db_session.add(photographer)
+    await db_session.flush()
+    db_session.add(
+        Photo(
+            event_id=event_with_photo.id,
+            photographer_id=photographer.id,
+            storage_key_original="originals/event-photo.jpg",
+            price=10000,
+            status=PhotoStatus.READY,
+            visibility=PhotoVisibility.DRAFT,
+        )
+    )
+    await db_session.flush()
+
+    response = await async_client.get("/api/v1/events?has_photos=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["id"] == str(event_with_photo.id)
+    assert data["items"][0]["photo_count"] == 1
 
 
 async def test_get_event_by_id(async_client, db_session):
