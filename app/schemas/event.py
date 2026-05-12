@@ -28,6 +28,7 @@ class EventResponse(BaseModel):
     is_sustainable: bool
     match_status: MatchStatus
     match_score: Optional[float] = None
+    photo_count: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -42,6 +43,7 @@ class EventFilters(BaseModel):
     status: Optional[EventStatus] = None
     is_sustainable: Optional[bool] = None
     search: Optional[str] = None
+    has_photos: Optional[bool] = None
 
 
 class EventResultResponse(BaseModel):

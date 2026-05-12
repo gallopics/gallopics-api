@@ -40,7 +40,7 @@ async def _seed_gallery(db_session):
         storage_key_thumbnail="thumbnails/photo1.jpg",
         price=10000, status=PhotoStatus.READY, visibility=PhotoVisibility.PUBLISHED,
     )
-    # Draft photo (should not appear in gallery)
+    # Draft ready photo (appears in public buyer gallery)
     p2 = Photo(
         event_id=event.id, photographer_id=photographer.id,
         storage_key_original="originals/photo2.jpg",
@@ -64,13 +64,13 @@ async def _seed_gallery(db_session):
     return event, p1, p2, p3
 
 
-async def test_gallery_returns_only_published_and_ready(async_client, db_session):
+async def test_gallery_returns_ready_photos(async_client, db_session):
     event, p1, p2, p3 = await _seed_gallery(db_session)
     response = await async_client.get(f"/api/v1/events/{event.id}/gallery")
     assert response.status_code == 200
     data = response.json()
-    assert data["total"] == 1
-    assert data["items"][0]["id"] == str(p1.id)
+    assert data["total"] == 2
+    assert {item["id"] for item in data["items"]} == {str(p1.id), str(p2.id)}
 
 
 async def test_gallery_empty_event(async_client, db_session):
@@ -188,10 +188,11 @@ async def test_photo_detail(async_client, db_session):
     assert response.json()["id"] == str(p1.id)
 
 
-async def test_photo_detail_draft_not_accessible(async_client, db_session):
+async def test_photo_detail_ready_draft_accessible(async_client, db_session):
     event, _, p2, _ = await _seed_gallery(db_session)
     response = await async_client.get(f"/api/v1/photos/{p2.id}")
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert response.json()["id"] == str(p2.id)
 
 
 async def test_photo_detail_not_found(async_client):

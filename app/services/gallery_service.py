@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.exceptions import NotFoundError
-from app.models.enums import PhotoStatus, PhotoVisibility
+from app.models.enums import PhotoStatus
 from app.models.photographer import Photo, PhotoTag
 from app.storage.base import StorageBackend
 
@@ -27,7 +27,6 @@ class GalleryService:
             select(Photo)
             .where(
                 Photo.event_id == event_id,
-                Photo.visibility == PhotoVisibility.PUBLISHED,
                 Photo.status == PhotoStatus.READY,
             )
             .options(selectinload(Photo.tags))
@@ -65,7 +64,6 @@ class GalleryService:
             .join(PhotoTag, PhotoTag.photo_id == Photo.id)
             .where(
                 Photo.event_id == event_id,
-                Photo.visibility == PhotoVisibility.PUBLISHED,
                 Photo.status == PhotoStatus.READY,
                 PhotoTag.value.ilike(f"%{query_str}%"),
             )
@@ -93,7 +91,6 @@ class GalleryService:
             select(Photo)
             .where(
                 Photo.id == photo_id,
-                Photo.visibility == PhotoVisibility.PUBLISHED,
                 Photo.status == PhotoStatus.READY,
             )
             .options(selectinload(Photo.tags))
