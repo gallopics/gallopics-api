@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.database import get_db
@@ -74,8 +75,8 @@ async def _get_captured_photo_purchase(
 
     result = await db.execute(
         select(PhotoPurchase)
+        .options(selectinload(PhotoPurchase.photo))
         .where(PhotoPurchase.order_id == order.id, PhotoPurchase.photo_id == photo_id)
-        .join(PhotoPurchase.photo)
     )
     purchase = result.scalar_one_or_none()
     if not purchase:
