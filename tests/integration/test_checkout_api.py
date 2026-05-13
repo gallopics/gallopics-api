@@ -1,5 +1,10 @@
 from app.main import app
+from app.models.enums import PhotographerStatus, PhotoStatus, PhotoVisibility, UserRole
+from app.models.event import Event
+from app.models.photographer import Photo, Photographer
+from app.models.user import User
 from app.routers.checkout import get_klarna_client
+from tests.factories import make_event
 
 
 class FakeKlarnaClient:
@@ -98,3 +103,67 @@ async def test_authorize_success(async_client, auth_headers):
             {"captured_amount": 5000, "description": f"Capture for order {order_id}"},
         )
     ]
+
+
+async def test_authorize_creates_photo_purchase(async_client, db_session):
+    fake = FakeKlarnaClient()
+    _override_klarna(fake)
+
+    photographer_user = User(
+        clerk_user_id="clerk_purchase_photo",
+        email="purchase-photo@example.com",
+        role=UserRole.PHOTOGRAPHER,
+    )
+    db_session.add(photographer_user)
+    await db_session.flush()
+    photographer = Photographer(
+        user_id=photographer_user.id,
+        slug="purchase-photo",
+        display_name="Purchase Photo",
+        status=PhotographerStatus.APPROVED,
+    )
+    db_session.add(photographer)
+    event = Event(**make_event(name="Purchase Event"))
+    db_session.add(event)
+    await db_session.flush()
+    photo = Photo(
+        event_id=event.id,
+        photographer_id=photographer.id,
+        storage_key_original="originals/purchase.jpg",
+        price=5000,
+        status=PhotoStatus.READY,
+        visibility=PhotoVisibility.PUBLISHED,
+    )
+    db_session.add(photo)
+    await db_session.flush()
+
+    session_response = await async_client.post(
+        "/api/v1/checkout/sessions",
+        json={
+            "line_items": [
+                {
+                    "name": "Photo",
+                    "quantity": 1,
+                    "unit_price": 5000,
+                    "total_amount": 5000,
+                    "photo_id": str(photo.id),
+                    "quality": "high",
+                }
+            ],
+            "idempotency_key": "key-photo-purchase",
+        },
+    )
+    order_id = session_response.json()["order_id"]
+
+    authorize_response = await async_client.post(
+        "/api/v1/checkout/authorize",
+        json={"order_id": order_id, "authorization_token": "token-photo"},
+    )
+
+    assert authorize_response.status_code == 200
+    download_response = await async_client.post(
+        f"/api/v1/photos/{photo.id}/download",
+        json={"order_id": order_id},
+    )
+    assert download_response.status_code == 200
+    assert "originals/purchase.jpg" in download_response.json()["url"]

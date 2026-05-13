@@ -104,6 +104,8 @@ def _build_klarna_session_payload(body: CreateCheckoutSessionRequest) -> dict[st
                 "tax_rate": item.tax_rate,
                 "total_amount": item.total_amount,
                 "total_tax_amount": item.total_tax_amount,
+                "photo_id": str(item.photo_id) if item.photo_id else None,
+                "quality": item.quality,
             }
             for index, item in enumerate(body.line_items)
         ],
@@ -240,6 +242,7 @@ async def authorize(
         raise _klarna_error(exc, "capture") from exc
 
     order = await service.update_order_status(order.id, OrderStatus.CAPTURED)
+    await service.create_photo_purchases(order, order_payload["order_lines"])
     await service.record_transaction(
         order.id,
         PaymentTransactionType.CAPTURE,

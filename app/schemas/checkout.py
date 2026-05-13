@@ -13,6 +13,8 @@ class LineItem(BaseModel):
     type: str = "digital"
     tax_rate: int = Field(default=0, ge=0)
     total_tax_amount: int = Field(default=0, ge=0)
+    photo_id: Optional[uuid.UUID] = None
+    quality: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_total_amount(self) -> "LineItem":
@@ -40,3 +42,12 @@ class CheckoutSessionResponse(BaseModel):
 class AuthorizeCheckoutRequest(BaseModel):
     order_id: uuid.UUID
     authorization_token: str
+
+
+class PhotoDownloadRequest(BaseModel):
+    order_id: uuid.UUID
+
+
+class PhotoDownloadResponse(BaseModel):
+    url: str
+    expires_in: int = 3600
