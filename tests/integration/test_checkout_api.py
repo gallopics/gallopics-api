@@ -166,4 +166,5 @@ async def test_authorize_creates_photo_purchase(async_client, db_session):
         json={"order_id": order_id},
     )
     assert download_response.status_code == 200
-    assert "originals/purchase.jpg" in download_response.json()["url"]
+    assert f"/api/v1/photos/{photo.id}/download" in download_response.json()["url"]
+    assert f"order_id={order_id}" in download_response.json()["url"]
