@@ -17,6 +17,7 @@ from app.models.enums import (
 )
 
 if TYPE_CHECKING:
+    from app.models.order import Order
     from app.models.user import User
 
 
@@ -76,6 +77,7 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     photographer: Mapped["Photographer"] = relationship(back_populates="photos")
     tags: Mapped[list["PhotoTag"]] = relationship(back_populates="photo", cascade="all, delete-orphan")
+    purchases: Mapped[list["PhotoPurchase"]] = relationship(back_populates="photo", cascade="all, delete-orphan")
 
 
 class PhotoTag(Base):
@@ -97,3 +99,20 @@ class PhotoOrder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(String, default="SEK")
     klarna_order_id: Mapped[Optional[str]] = mapped_column(String)
     status: Mapped[OrderStatus] = mapped_column(default=OrderStatus.PENDING)
+
+
+class PhotoPurchase(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "photo_purchases"
+    __table_args__ = (
+        UniqueConstraint("order_id", "photo_id", "quality", name="uq_photo_purchase_order_photo_quality"),
+    )
+
+    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    photo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("photos.id"), index=True)
+    quality: Mapped[str] = mapped_column(String, default="original")
+    amount: Mapped[int] = mapped_column()
+    currency: Mapped[str] = mapped_column(String, default="SEK")
+
+    order: Mapped["Order"] = relationship("Order")
+    photo: Mapped["Photo"] = relationship(back_populates="purchases")

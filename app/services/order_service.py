@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.exceptions import NotFoundError
 from app.models.enums import OrderStatus, PaymentTransactionStatus, PaymentTransactionType
 from app.models.order import Order, PaymentTransaction
+from app.models.photographer import PhotoPurchase
 
 
 class OrderService:
@@ -90,3 +91,24 @@ class OrderService:
         self.db.add(txn)
         await self.db.flush()
         return txn
+
+    async def create_photo_purchases(self, order: Order, items: list[dict]) -> list[PhotoPurchase]:
+        purchases = []
+        for item in items:
+            photo_id = item.get("photo_id")
+            if not photo_id:
+                continue
+
+            purchase = PhotoPurchase(
+                order_id=order.id,
+                user_id=order.user_id,
+                photo_id=uuid.UUID(str(photo_id)),
+                quality=item.get("quality") or "original",
+                amount=item["total_amount"],
+                currency=order.currency,
+            )
+            self.db.add(purchase)
+            purchases.append(purchase)
+
+        await self.db.flush()
+        return purchases
