@@ -1,7 +1,10 @@
 import uuid
+from io import BytesIO
+from tempfile import TemporaryDirectory
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,13 +61,12 @@ async def get_photo(photo_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     return PhotoResponse.model_validate(photo)
 
 
-@router.post("/api/v1/photos/{photo_id}/download", response_model=PhotoDownloadResponse)
-async def create_photo_download(
+async def _get_captured_photo_purchase(
     photo_id: uuid.UUID,
-    body: PhotoDownloadRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    order = await db.get(Order, body.order_id)
+    order_id: uuid.UUID,
+    db: AsyncSession,
+) -> PhotoPurchase:
+    order = await db.get(Order, order_id)
     if not order:
         raise NotFoundError("Order not found")
     if order.status != OrderStatus.CAPTURED:
@@ -81,9 +83,41 @@ async def create_photo_download(
     if not purchase.photo.storage_key_original:
         raise BadRequestError("Original file is not available")
 
-    storage = get_storage_backend(get_settings())
-    url = await storage.generate_presigned_download_url(
-        purchase.photo.storage_key_original,
-        expires_in=3600,
+    return purchase
+
+
+@router.post("/api/v1/photos/{photo_id}/download", response_model=PhotoDownloadResponse)
+async def create_photo_download(
+    photo_id: uuid.UUID,
+    body: PhotoDownloadRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    await _get_captured_photo_purchase(photo_id, body.order_id, db)
+    url = request.url_for("download_photo_file", photo_id=str(photo_id)).include_query_params(
+        order_id=str(body.order_id)
     )
-    return PhotoDownloadResponse(url=url, expires_in=3600)
+    return PhotoDownloadResponse(url=str(url), expires_in=3600)
+
+
+@router.get("/api/v1/photos/{photo_id}/download", include_in_schema=False)
+async def download_photo_file(
+    photo_id: uuid.UUID,
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    purchase = await _get_captured_photo_purchase(photo_id, order_id, db)
+    storage = get_storage_backend(get_settings())
+
+    with TemporaryDirectory() as tmpdir:
+        temp_path = f"{tmpdir}/original"
+        await storage.download_to_path(purchase.photo.storage_key_original, temp_path)
+        with open(temp_path, "rb") as file:
+            data = file.read()
+
+    filename = f"gallopics-{photo_id}.jpg"
+    return StreamingResponse(
+        BytesIO(data),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
