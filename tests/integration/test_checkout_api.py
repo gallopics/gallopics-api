@@ -71,6 +71,19 @@ async def test_create_session_authenticated(async_client, auth_headers):
     assert fake.sessions[0]["order_amount"] == 5000
 
 
+async def test_create_session_includes_customer_email(async_client, auth_headers):
+    fake = FakeKlarnaClient()
+    _override_klarna(fake)
+    response = await async_client.post("/api/v1/checkout/sessions", json={
+        "line_items": [{"name": "Photo", "quantity": 1, "unit_price": 5000, "total_amount": 5000}],
+        "idempotency_key": "key-checkout-email-1",
+        "customer_email": "buyer@example.com",
+    }, headers=auth_headers)
+
+    assert response.status_code == 200
+    assert fake.sessions[0]["billing_address"] == {"email": "buyer@example.com"}
+
+
 async def test_create_session_idempotent(async_client, auth_headers):
     fake = FakeKlarnaClient()
     _override_klarna(fake)

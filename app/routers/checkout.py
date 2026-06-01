@@ -90,7 +90,7 @@ def _klarna_error(exc: Exception, action: str) -> ExternalServiceError:
 def _build_klarna_session_payload(body: CreateCheckoutSessionRequest) -> dict[str, Any]:
     order_amount = sum(item.total_amount for item in body.line_items)
     order_tax_amount = sum(item.total_tax_amount for item in body.line_items)
-    return {
+    payload = {
         "acquiring_channel": "ECOMMERCE",
         "intent": "buy",
         "purchase_country": body.purchase_country.upper(),
@@ -114,6 +114,9 @@ def _build_klarna_session_payload(body: CreateCheckoutSessionRequest) -> dict[st
             for index, item in enumerate(body.line_items)
         ],
     }
+    if body.customer_email:
+        payload["billing_address"] = {"email": body.customer_email}
+    return payload
 
 
 def _find_session_payload(order) -> dict[str, Any] | None:
