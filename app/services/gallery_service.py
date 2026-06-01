@@ -30,6 +30,7 @@ class GalleryService:
                 Photo.status == PhotoStatus.READY,
             )
             .options(selectinload(Photo.tags))
+            .options(selectinload(Photo.photographer))
         )
         if class_id:
             try:
@@ -68,6 +69,7 @@ class GalleryService:
                 PhotoTag.value.ilike(f"%{query_str}%"),
             )
             .options(selectinload(Photo.tags))
+            .options(selectinload(Photo.photographer))
         )
         if tag_type:
             query = query.where(PhotoTag.type == tag_type)
@@ -93,7 +95,7 @@ class GalleryService:
                 Photo.id == photo_id,
                 Photo.status == PhotoStatus.READY,
             )
-            .options(selectinload(Photo.tags))
+            .options(selectinload(Photo.tags), selectinload(Photo.photographer))
         )
         photo = result.scalar_one_or_none()
         if not photo:

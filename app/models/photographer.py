@@ -79,6 +79,14 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     tags: Mapped[list["PhotoTag"]] = relationship(back_populates="photo", cascade="all, delete-orphan")
     purchases: Mapped[list["PhotoPurchase"]] = relationship(back_populates="photo", cascade="all, delete-orphan")
 
+    @property
+    def photographer_display_name(self) -> Optional[str]:
+        return self.photographer.display_name if self.photographer else None
+
+    @property
+    def photographer_avatar_url(self) -> Optional[str]:
+        return self.photographer.avatar_url if self.photographer else None
+
 
 class PhotoTag(Base):
     __tablename__ = "photo_tags"

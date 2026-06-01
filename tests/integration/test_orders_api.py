@@ -11,9 +11,14 @@ class FakeKlarnaClient:
         self.captures = []
         self.refunds = []
         self.cancellations = []
+        self.customer_communications = []
 
     async def capture(self, order_id, payload):
         self.captures.append((order_id, payload))
+        return {"capture_id": "klarna-capture-1"}
+
+    async def trigger_customer_communication(self, order_id, capture_id):
+        self.customer_communications.append((order_id, capture_id))
 
     async def refund(self, order_id, payload):
         self.refunds.append((order_id, payload))
@@ -82,6 +87,7 @@ async def test_capture_calls_klarna_for_klarna_order(async_client, admin_auth_he
             {"captured_amount": 5000, "description": f"Capture for order {order.id}"},
         )
     ]
+    assert fake.customer_communications == [("klarna-order-1", "klarna-capture-1")]
 
 
 async def test_capture_invalid_state(async_client, admin_auth_headers, db_session, admin_user):

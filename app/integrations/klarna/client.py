@@ -46,9 +46,24 @@ class KlarnaClient:
         wait=wait_exponential(multiplier=1, min=1, max=10),
         retry=retry_if_exception(_should_retry),
     )
-    async def capture(self, order_id: str, payload: dict) -> None:
+    async def capture(self, order_id: str, payload: dict) -> dict:
         resp = await self._client.post(
             f"/ordermanagement/v1/orders/{order_id}/captures", json=payload
+        )
+        resp.raise_for_status()
+        try:
+            return resp.json()
+        except ValueError:
+            return {"location": resp.headers.get("location")}
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception(_should_retry),
+    )
+    async def trigger_customer_communication(self, order_id: str, capture_id: str) -> None:
+        resp = await self._client.post(
+            f"/ordermanagement/v1/orders/{order_id}/captures/{capture_id}/trigger-send-out"
         )
         resp.raise_for_status()
 

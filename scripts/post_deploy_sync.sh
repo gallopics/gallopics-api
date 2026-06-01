@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ -z "${SERVICE_URL:-}" ]]; then
-  echo "SERVICE_URL is required, for example: https://gallopics-api.onrender.com"
+  echo "SERVICE_URL is required, for example: http://82.96.43.103:8081"
   exit 1
 fi
 

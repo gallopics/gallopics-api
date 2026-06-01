@@ -14,7 +14,11 @@ from app.integrations.clerk.auth import ClerkAuth
 from app.integrations.klarna.client import KlarnaClient
 from app.models.enums import OrderStatus, PaymentTransactionStatus, PaymentTransactionType
 from app.models.user import User
-from app.schemas.checkout import AuthorizeCheckoutRequest, CheckoutSessionResponse, CreateCheckoutSessionRequest
+from app.schemas.checkout import (
+    AuthorizeCheckoutRequest,
+    CheckoutSessionResponse,
+    CreateCheckoutSessionRequest,
+)
 from app.schemas.order import OrderResponse
 from app.services.order_service import OrderService
 
@@ -127,6 +131,18 @@ def _capture_payload(order) -> dict[str, Any]:
     }
 
 
+def _capture_id_from_response(response: dict[str, Any] | None) -> str | None:
+    if not response:
+        return None
+    capture_id = response.get("capture_id")
+    if capture_id:
+        return str(capture_id)
+    location = response.get("location")
+    if isinstance(location, str):
+        return location.rstrip("/").split("/")[-1] or None
+    return None
+
+
 @router.post("/sessions", response_model=CheckoutSessionResponse)
 async def create_session(
     body: CreateCheckoutSessionRequest,
@@ -227,7 +243,7 @@ async def authorize(
 
     capture_payload = _capture_payload(order)
     try:
-        await klarna.capture(klarna_order["order_id"], capture_payload)
+        capture_response = await klarna.capture(klarna_order["order_id"], capture_payload)
     except Exception as exc:
         await service.record_transaction(
             order.id,
@@ -241,6 +257,17 @@ async def authorize(
         )
         raise _klarna_error(exc, "capture") from exc
 
+    capture_id = _capture_id_from_response(capture_response)
+    communication_status = "skipped"
+    communication_error = None
+    if capture_id:
+        try:
+            await klarna.trigger_customer_communication(klarna_order["order_id"], capture_id)
+            communication_status = "triggered"
+        except Exception as exc:
+            communication_status = "failed"
+            communication_error = str(exc)
+
     order = await service.update_order_status(order.id, OrderStatus.CAPTURED)
     await service.create_photo_purchases(order, order_payload["order_lines"])
     await service.record_transaction(
@@ -249,7 +276,10 @@ async def authorize(
         PaymentTransactionStatus.SUCCESS,
         payload={
             "klarna_order_id": klarna_order["order_id"],
+            "klarna_capture_id": capture_id,
             "klarna_capture_payload": capture_payload,
+            "klarna_customer_communication_status": communication_status,
+            "klarna_customer_communication_error": communication_error,
         },
     )
 

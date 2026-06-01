@@ -12,6 +12,7 @@ class FakeKlarnaClient:
         self.sessions = []
         self.orders = []
         self.captures = []
+        self.customer_communications = []
 
     async def create_session(self, payload):
         self.sessions.append(payload)
@@ -30,6 +31,10 @@ class FakeKlarnaClient:
 
     async def capture(self, order_id, payload):
         self.captures.append((order_id, payload))
+        return {"capture_id": "klarna-capture-test"}
+
+    async def trigger_customer_communication(self, order_id, capture_id):
+        self.customer_communications.append((order_id, capture_id))
 
 
 def _override_klarna(fake):
@@ -103,6 +108,7 @@ async def test_authorize_success(async_client, auth_headers):
             {"captured_amount": 5000, "description": f"Capture for order {order_id}"},
         )
     ]
+    assert fake.customer_communications == [("klarna-order-test", "klarna-capture-test")]
 
 
 async def test_authorize_creates_photo_purchase(async_client, db_session):
