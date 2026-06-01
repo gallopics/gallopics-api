@@ -24,6 +24,8 @@ class PhotoResponse(BaseModel):
     event_class_id: Optional[str] = None
     class_name: Optional[str] = None
     photographer_id: uuid.UUID
+    photographer_display_name: Optional[str] = None
+    photographer_avatar_url: Optional[str] = None
     price: int
     currency: str
     status: PhotoStatus
