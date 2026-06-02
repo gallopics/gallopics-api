@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 from app.main import app
 from app.models.enums import PhotographerStatus, PhotoStatus, PhotoVisibility, UserRole
 from app.models.event import Event
@@ -122,6 +124,31 @@ async def test_authorize_success(async_client, auth_headers):
         )
     ]
     assert fake.customer_communications == [("klarna-order-test", "klarna-capture-test")]
+
+
+async def test_authorize_sends_purchase_receipt(async_client, auth_headers):
+    fake = FakeKlarnaClient()
+    _override_klarna(fake)
+    with patch(
+        "app.routers.checkout.TransactionalEmailService.send_purchase_receipt",
+        new_callable=AsyncMock,
+    ) as send_receipt:
+        send_receipt.return_value = {"status": "sent", "provider": "resend"}
+        r = await async_client.post("/api/v1/checkout/sessions", json={
+            "line_items": [{"name": "Photo", "quantity": 1, "unit_price": 5000, "total_amount": 5000}],
+            "idempotency_key": "key-auth-email-1",
+            "customer_email": "buyer@example.com",
+        }, headers=auth_headers)
+        order_id = r.json()["order_id"]
+
+        response = await async_client.post("/api/v1/checkout/authorize", json={
+            "order_id": order_id,
+            "authorization_token": "token-email",
+        }, headers=auth_headers)
+
+    assert response.status_code == 200
+    send_receipt.assert_awaited_once()
+    assert send_receipt.await_args.kwargs["recipient_email"] == "buyer@example.com"
 
 
 async def test_authorize_creates_photo_purchase(async_client, db_session):
