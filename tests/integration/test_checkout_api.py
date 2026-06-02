@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, patch
 
+from app.config import get_settings
 from app.main import app
 from app.models.enums import PhotographerStatus, PhotoStatus, PhotoVisibility, UserRole
 from app.models.event import Event
@@ -151,9 +152,11 @@ async def test_authorize_sends_purchase_receipt(async_client, auth_headers):
     assert send_receipt.await_args.kwargs["recipient_email"] == "buyer@example.com"
 
 
-async def test_authorize_creates_photo_purchase(async_client, db_session):
+async def test_authorize_creates_photo_purchase(async_client, db_session, monkeypatch):
     fake = FakeKlarnaClient()
     _override_klarna(fake)
+    get_settings.cache_clear()
+    monkeypatch.setenv("API_PUBLIC_BASE_URL", "http://82.96.43.103:8081")
 
     photographer_user = User(
         clerk_user_id="clerk_purchase_photo",
@@ -215,7 +218,10 @@ async def test_authorize_creates_photo_purchase(async_client, db_session):
     assert authorize_response.status_code == 200
     send_receipt.assert_awaited_once()
     receipt_item = send_receipt.await_args.kwargs["line_items"][0]
-    assert f"/api/v1/photos/{photo.id}/download" in receipt_item["download_url"]
+    assert (
+        receipt_item["download_url"]
+        == f"http://82.96.43.103:8081/api/v1/photos/{photo.id}/download?order_id={order_id}"
+    )
     assert f"order_id={order_id}" in receipt_item["download_url"]
 
     download_response = await async_client.post(
@@ -225,3 +231,4 @@ async def test_authorize_creates_photo_purchase(async_client, db_session):
     assert download_response.status_code == 200
     assert f"/api/v1/photos/{photo.id}/download" in download_response.json()["url"]
     assert f"order_id={order_id}" in download_response.json()["url"]
+    get_settings.cache_clear()

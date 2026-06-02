@@ -175,6 +175,7 @@ See `.env.example` for the full list. Key variables:
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://localhost/gallopics_dev` |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` |
+| `API_PUBLIC_BASE_URL` | Public API URL used for email download links | -- |
 | `CLERK_JWKS_URL` | Clerk JWKS endpoint for JWT validation | -- |
 | `KLARNA_API_URL` | Klarna API base URL | `https://api.playground.klarna.com` |
 | `TRANSACTIONAL_EMAIL_ENABLED` | Send Gallopics purchase receipts through Resend | `false` |
