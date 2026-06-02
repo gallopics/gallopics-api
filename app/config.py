@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     klarna_username: str = ""
     klarna_password: str = ""
 
+    # Transactional email
+    transactional_email_enabled: bool = False
+    resend_api_url: str = "https://api.resend.com"
+    resend_api_key: str = ""
+    transactional_email_from: str = "Gallopics <onboarding@resend.dev>"
+    transactional_email_reply_to: str = ""
+
     # Storage
     storage_backend: str = "local"
     storage_local_path: str = "./uploads"

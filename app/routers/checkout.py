@@ -21,6 +21,7 @@ from app.schemas.checkout import (
 )
 from app.schemas.order import OrderResponse
 from app.services.order_service import OrderService
+from app.services.transactional_email_service import TransactionalEmailService
 
 router = APIRouter(prefix="/api/v1/checkout", tags=["checkout"])
 
@@ -271,6 +272,18 @@ async def authorize(
             communication_status = "failed"
             communication_error = str(exc)
 
+    receipt_email = {"status": "skipped", "reason": "not_attempted"}
+    try:
+        receipt_email = await TransactionalEmailService(get_settings()).send_purchase_receipt(
+            recipient_email=order_payload.get("billing_address", {}).get("email"),
+            order_id=str(order.id),
+            amount=order.amount,
+            currency=order.currency,
+            line_items=order_payload["order_lines"],
+        )
+    except Exception as exc:
+        receipt_email = {"status": "failed", "error": str(exc)}
+
     order = await service.update_order_status(order.id, OrderStatus.CAPTURED)
     await service.create_photo_purchases(order, order_payload["order_lines"])
     await service.record_transaction(
@@ -283,6 +296,7 @@ async def authorize(
             "klarna_capture_payload": capture_payload,
             "klarna_customer_communication_status": communication_status,
             "klarna_customer_communication_error": communication_error,
+            "purchase_receipt_email": receipt_email,
         },
     )
 

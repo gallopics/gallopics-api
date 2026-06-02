@@ -177,6 +177,11 @@ See `.env.example` for the full list. Key variables:
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` |
 | `CLERK_JWKS_URL` | Clerk JWKS endpoint for JWT validation | -- |
 | `KLARNA_API_URL` | Klarna API base URL | `https://api.playground.klarna.com` |
+| `TRANSACTIONAL_EMAIL_ENABLED` | Send Gallopics purchase receipts through Resend | `false` |
+| `RESEND_API_KEY` | Resend API key for transactional email | -- |
+| `RESEND_API_URL` | Resend API base URL | `https://api.resend.com` |
+| `TRANSACTIONAL_EMAIL_FROM` | From address for purchase receipts | `Gallopics <onboarding@resend.dev>` |
+| `TRANSACTIONAL_EMAIL_REPLY_TO` | Optional reply-to address for purchase receipts | -- |
 | `STORAGE_BACKEND` | `local` or `s3` | `local` |
 | `STORAGE_LOCAL_PATH` | Path for local file storage | `./uploads` |
 | `CELERY_BROKER_URL` | Redis URL for Celery broker | `redis://localhost:6379/1` |
