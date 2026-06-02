@@ -147,6 +147,25 @@ def _capture_id_from_response(response: dict[str, Any] | None) -> str | None:
     return None
 
 
+def _order_lines_with_download_urls(
+    request: Request,
+    order_id: uuid.UUID,
+    order_lines: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    enriched_lines = []
+    for item in order_lines:
+        enriched_item = dict(item)
+        photo_id = enriched_item.get("photo_id")
+        if photo_id:
+            enriched_item["download_url"] = str(
+                request.url_for("download_photo_file", photo_id=str(photo_id)).include_query_params(
+                    order_id=str(order_id)
+                )
+            )
+        enriched_lines.append(enriched_item)
+    return enriched_lines
+
+
 @router.post("/sessions", response_model=CheckoutSessionResponse)
 async def create_session(
     body: CreateCheckoutSessionRequest,
@@ -205,6 +224,7 @@ async def create_session(
 @router.post("/authorize", response_model=OrderResponse)
 async def authorize(
     body: AuthorizeCheckoutRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     klarna: KlarnaClient = Depends(get_klarna_client),
 ):
@@ -274,12 +294,17 @@ async def authorize(
 
     receipt_email = {"status": "skipped", "reason": "not_attempted"}
     try:
+        receipt_line_items = _order_lines_with_download_urls(
+            request,
+            order.id,
+            order_payload["order_lines"],
+        )
         receipt_email = await TransactionalEmailService(get_settings()).send_purchase_receipt(
             recipient_email=order_payload.get("billing_address", {}).get("email"),
             order_id=str(order.id),
             amount=order.amount,
             currency=order.currency,
-            line_items=order_payload["order_lines"],
+            line_items=receipt_line_items,
         )
     except Exception as exc:
         receipt_email = {"status": "failed", "error": str(exc)}

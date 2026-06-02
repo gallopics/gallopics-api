@@ -197,16 +197,27 @@ async def test_authorize_creates_photo_purchase(async_client, db_session):
                 }
             ],
             "idempotency_key": "key-photo-purchase",
+            "customer_email": "buyer@example.com",
         },
     )
     order_id = session_response.json()["order_id"]
 
-    authorize_response = await async_client.post(
-        "/api/v1/checkout/authorize",
-        json={"order_id": order_id, "authorization_token": "token-photo"},
-    )
+    with patch(
+        "app.routers.checkout.TransactionalEmailService.send_purchase_receipt",
+        new_callable=AsyncMock,
+    ) as send_receipt:
+        send_receipt.return_value = {"status": "sent", "provider": "resend"}
+        authorize_response = await async_client.post(
+            "/api/v1/checkout/authorize",
+            json={"order_id": order_id, "authorization_token": "token-photo"},
+        )
 
     assert authorize_response.status_code == 200
+    send_receipt.assert_awaited_once()
+    receipt_item = send_receipt.await_args.kwargs["line_items"][0]
+    assert f"/api/v1/photos/{photo.id}/download" in receipt_item["download_url"]
+    assert f"order_id={order_id}" in receipt_item["download_url"]
+
     download_response = await async_client.post(
         f"/api/v1/photos/{photo.id}/download",
         json={"order_id": order_id},

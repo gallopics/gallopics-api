@@ -74,11 +74,9 @@ class TransactionalEmailService:
         currency: str,
         line_items: Sequence[dict],
     ) -> str:
-        rows = [
-            f"- {item.get('name', 'Photo')} x {item.get('quantity', 1)}: "
-            f"{self._format_amount(int(item.get('total_amount') or 0), currency)}"
-            for item in line_items
-        ] or ["- Digital photo purchase"]
+        rows = [self._build_text_item_row(item, currency) for item in line_items] or [
+            "- Digital photo purchase"
+        ]
 
         return "\n".join(
             [
@@ -91,7 +89,7 @@ class TransactionalEmailService:
                 "",
                 f"Total: {self._format_amount(amount, currency)}",
                 "",
-                "Your purchased photos are available from the download links shown after checkout.",
+                "Your purchased photos are available from the download links in this email and after checkout.",
             ]
         )
 
@@ -104,7 +102,7 @@ class TransactionalEmailService:
     ) -> str:
         rows = "\n".join(
             "<tr>"
-            f"<td>{html.escape(str(item.get('name') or 'Photo'))}</td>"
+            f"<td>{self._build_html_item_name(item)}</td>"
             f"<td align=\"center\">{int(item.get('quantity') or 1)}</td>"
             f"<td align=\"right\">{self._format_amount(int(item.get('total_amount') or 0), currency)}</td>"
             "</tr>"
@@ -136,10 +134,32 @@ class TransactionalEmailService:
         </tr>
       </tfoot>
     </table>
-    <p>Your purchased photos are available from the download links shown after checkout.</p>
+    <p>Your purchased photos are available from the download links in this email and after checkout.</p>
   </body>
 </html>
 """
+
+    def _build_text_item_row(self, item: dict, currency: str) -> str:
+        row = (
+            f"- {item.get('name', 'Photo')} x {item.get('quantity', 1)}: "
+            f"{self._format_amount(int(item.get('total_amount') or 0), currency)}"
+        )
+        download_url = item.get("download_url")
+        if download_url:
+            row = f"{row}\n  Download: {download_url}"
+        return row
+
+    def _build_html_item_name(self, item: dict) -> str:
+        item_name = html.escape(str(item.get("name") or "Photo"))
+        download_url = item.get("download_url")
+        if not download_url:
+            return item_name
+
+        safe_url = html.escape(str(download_url), quote=True)
+        return (
+            f"{item_name}<br>"
+            f"<a href=\"{safe_url}\" style=\"color: #ea580c;\">Download photo</a>"
+        )
 
     def _format_amount(self, amount: int, currency: str) -> str:
         return f"{amount / 100:.2f} {currency.upper()}"
