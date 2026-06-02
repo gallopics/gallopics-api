@@ -222,6 +222,10 @@ async def test_authorize_creates_photo_purchase(async_client, db_session, monkey
         receipt_item["download_url"]
         == f"http://82.96.43.103:8081/api/v1/photos/{photo.id}/download?order_id={order_id}&inline=true"
     )
+    assert (
+        receipt_item["thumbnail_url"]
+        == f"http://82.96.43.103:8081/api/v1/photographer/photos/{photo.id}/thumbnail"
+    )
     assert f"order_id={order_id}" in receipt_item["download_url"]
     assert "inline=true" in receipt_item["download_url"]
 
