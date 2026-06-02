@@ -220,9 +220,10 @@ async def test_authorize_creates_photo_purchase(async_client, db_session, monkey
     receipt_item = send_receipt.await_args.kwargs["line_items"][0]
     assert (
         receipt_item["download_url"]
-        == f"http://82.96.43.103:8081/api/v1/photos/{photo.id}/download?order_id={order_id}"
+        == f"http://82.96.43.103:8081/api/v1/photos/{photo.id}/download?order_id={order_id}&inline=true"
     )
     assert f"order_id={order_id}" in receipt_item["download_url"]
+    assert "inline=true" in receipt_item["download_url"]
 
     download_response = await async_client.post(
         f"/api/v1/photos/{photo.id}/download",
@@ -231,4 +232,5 @@ async def test_authorize_creates_photo_purchase(async_client, db_session, monkey
     assert download_response.status_code == 200
     assert f"/api/v1/photos/{photo.id}/download" in download_response.json()["url"]
     assert f"order_id={order_id}" in download_response.json()["url"]
+    assert "inline=true" not in download_response.json()["url"]
     get_settings.cache_clear()

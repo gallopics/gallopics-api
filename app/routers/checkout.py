@@ -162,12 +162,13 @@ def _order_lines_with_download_urls(
             if public_base_url:
                 download_url = (
                     f"{public_base_url}/api/v1/photos/{photo_id}/download"
-                    f"?order_id={order_id}"
+                    f"?order_id={order_id}&inline=true"
                 )
             else:
                 download_url = str(
                     request.url_for("download_photo_file", photo_id=str(photo_id)).include_query_params(
-                        order_id=str(order_id)
+                        order_id=str(order_id),
+                        inline="true",
                     )
                 )
             enriched_item["download_url"] = download_url
