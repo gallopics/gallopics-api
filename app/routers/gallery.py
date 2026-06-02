@@ -105,6 +105,7 @@ async def create_photo_download(
 async def download_photo_file(
     photo_id: uuid.UUID,
     order_id: uuid.UUID,
+    inline: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
     purchase = await _get_captured_photo_purchase(photo_id, order_id, db)
@@ -117,8 +118,9 @@ async def download_photo_file(
             data = file.read()
 
     filename = f"gallopics-{photo_id}.jpg"
+    disposition = "inline" if inline else "attachment"
     return StreamingResponse(
         BytesIO(data),
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        media_type="image/jpeg" if inline else "application/octet-stream",
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
     )
