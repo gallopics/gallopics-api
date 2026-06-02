@@ -152,16 +152,25 @@ def _order_lines_with_download_urls(
     order_id: uuid.UUID,
     order_lines: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    settings = get_settings()
+    public_base_url = settings.api_public_base_url.rstrip("/")
     enriched_lines = []
     for item in order_lines:
         enriched_item = dict(item)
         photo_id = enriched_item.get("photo_id")
         if photo_id:
-            enriched_item["download_url"] = str(
-                request.url_for("download_photo_file", photo_id=str(photo_id)).include_query_params(
-                    order_id=str(order_id)
+            if public_base_url:
+                download_url = (
+                    f"{public_base_url}/api/v1/photos/{photo_id}/download"
+                    f"?order_id={order_id}"
                 )
-            )
+            else:
+                download_url = str(
+                    request.url_for("download_photo_file", photo_id=str(photo_id)).include_query_params(
+                        order_id=str(order_id)
+                    )
+                )
+            enriched_item["download_url"] = download_url
         enriched_lines.append(enriched_item)
     return enriched_lines
 

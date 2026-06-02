@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
+    api_public_base_url: str = ""
     cors_origins: str = "http://localhost:5173,https://gallopics.com,https://www.gallopics.com"
 
     # Database
