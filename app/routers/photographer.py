@@ -37,6 +37,19 @@ def _get_storage():
     return get_storage_backend(settings)
 
 
+async def _validate_upload_file_size(file: UploadFile, max_size_bytes: int) -> None:
+    size = 0
+    while chunk := await file.read(1024 * 1024):
+        size += len(chunk)
+        if size > max_size_bytes:
+            await file.seek(0)
+            max_size_mb = max_size_bytes // (1024 * 1024)
+            raise BadRequestError(
+                f"File '{file.filename}' is too large. Maximum upload size is {max_size_mb} MB."
+            )
+    await file.seek(0)
+
+
 async def _photo_responses(db: AsyncSession, photos) -> list[PhotoResponse]:
     responses = []
     for photo in photos:
@@ -202,9 +215,12 @@ async def upload_photos(
     photographer = await service.get_photographer_for_user(user.id)
 
     # Validate files
+    settings = get_settings()
+    max_upload_size_bytes = settings.max_upload_file_size_mb * 1024 * 1024
     valid_files = []
     for file in files:
         if file.content_type and file.content_type.startswith("image/"):
+            await _validate_upload_file_size(file, max_upload_size_bytes)
             valid_files.append(file)
         else:
             raise BadRequestError(f"File '{file.filename}' is not an image")
