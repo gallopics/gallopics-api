@@ -65,6 +65,42 @@ async def test_upload_photos_accepts_multipart_payload(
     assert data[0]["tags"] == []
 
 
+async def test_upload_photos_rejects_files_over_configured_size(
+    async_client,
+    db_session,
+    photographer_user,
+    photographer_auth_headers,
+    monkeypatch,
+    tmp_path,
+):
+    from types import SimpleNamespace
+
+    import app.routers.photographer as photographer_router
+
+    await _seed_photographer(db_session, photographer_user)
+    event = await _seed_event(db_session, name="Oversized Upload Event")
+    monkeypatch.setattr(
+        photographer_router,
+        "_get_storage",
+        lambda: LocalStorageBackend(str(tmp_path / "uploads")),
+    )
+    monkeypatch.setattr(
+        photographer_router,
+        "get_settings",
+        lambda: SimpleNamespace(max_upload_file_size_mb=0),
+    )
+
+    response = await async_client.post(
+        "/api/v1/photographer/uploads",
+        headers=photographer_auth_headers,
+        data={"event_id": str(event.id)},
+        files={"files": ("too-large.png", PNG_1X1, "image/png")},
+    )
+
+    assert response.status_code == 400
+    assert "Maximum upload size is 0 MB" in response.json()["detail"]
+
+
 async def test_upload_photos_stores_class_ids(
     async_client,
     db_session,

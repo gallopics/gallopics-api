@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     api_public_base_url: str = ""
     cors_origins: str = "http://localhost:5173,https://gallopics.com,https://www.gallopics.com"
+    max_upload_file_size_mb: int = 100
 
     # Database
     database_url: str = "postgresql+asyncpg://localhost/gallopics_dev"
