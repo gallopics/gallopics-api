@@ -36,12 +36,16 @@ class GalleryService:
             try:
                 class_uuid = uuid.UUID(class_id)
             except ValueError:
-                query = query.where(Photo.event_class_id == class_id)
+                query = query.where(
+                    (Photo.event_class_id == class_id)
+                    | (Photo.equipe_class_section_id == class_id)
+                )
             else:
                 query = query.where(
                     (Photo.class_id == class_uuid)
                     | (Photo.class_section_id == class_uuid)
                     | (Photo.event_class_id == class_id)
+                    | (Photo.equipe_class_section_id == class_id)
                 )
 
         count_query = select(func.count()).select_from(query.subquery())
@@ -77,12 +81,16 @@ class GalleryService:
             try:
                 class_uuid = uuid.UUID(class_id)
             except ValueError:
-                query = query.where(Photo.event_class_id == class_id)
+                query = query.where(
+                    (Photo.event_class_id == class_id)
+                    | (Photo.equipe_class_section_id == class_id)
+                )
             else:
                 query = query.where(
                     (Photo.class_id == class_uuid)
                     | (Photo.class_section_id == class_uuid)
                     | (Photo.event_class_id == class_id)
+                    | (Photo.equipe_class_section_id == class_id)
                 )
 
         result = await self.db.execute(query)

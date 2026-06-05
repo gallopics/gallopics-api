@@ -58,6 +58,30 @@ async def test_get_meeting_schedule_success(equipe_client, equipe_base_url):
 
 
 @respx.mock
+async def test_get_class_section_success(equipe_client, equipe_base_url):
+    respx.get(f"{equipe_base_url}/class_sections/section-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "section-1",
+                "starts": [{"rider_name": "Alice", "horse_name": "Thunder"}],
+            },
+        )
+    )
+    result = await equipe_client.get_class_section("section-1")
+    assert result["starts"][0]["horse_name"] == "Thunder"
+
+
+@respx.mock
+async def test_get_meeting_horses_success(equipe_client, equipe_base_url):
+    respx.get(f"{equipe_base_url}/meetings/m1/horses").mock(
+        return_value=httpx.Response(200, json=[{"id": "h1", "name": "Thunder"}])
+    )
+    result = await equipe_client.get_meeting_horses("m1")
+    assert result == [{"id": "h1", "name": "Thunder"}]
+
+
+@respx.mock
 async def test_retry_on_transient_error(equipe_client, equipe_base_url):
     route = respx.get(f"{equipe_base_url}/meetings/recent")
     route.side_effect = [

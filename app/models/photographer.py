@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import JSON, Boolean, ForeignKey, String, UniqueConstraint
@@ -65,11 +66,20 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     class_id: Mapped[Optional[uuid.UUID]] = mapped_column(index=True)
     class_section_id: Mapped[Optional[uuid.UUID]] = mapped_column(index=True)
     event_class_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    equipe_class_section_id: Mapped[Optional[str]] = mapped_column(String, index=True)
     class_name: Mapped[Optional[str]] = mapped_column(String)
     photographer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("photographers.id"), index=True)
     storage_key_original: Mapped[Optional[str]] = mapped_column(String)
     storage_key_preview: Mapped[Optional[str]] = mapped_column(String)
     storage_key_thumbnail: Mapped[Optional[str]] = mapped_column(String)
+    taken_at: Mapped[Optional[datetime]] = mapped_column()
+    equipe_start_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    equipe_rider_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    equipe_horse_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    matched_at: Mapped[Optional[datetime]] = mapped_column()
+    match_confidence: Mapped[Optional[str]] = mapped_column(String)
+    match_delta_seconds: Mapped[Optional[int]] = mapped_column()
+    match_source: Mapped[Optional[str]] = mapped_column(String)
     price: Mapped[int] = mapped_column()
     currency: Mapped[str] = mapped_column(String, default="SEK")
     status: Mapped[PhotoStatus] = mapped_column(default=PhotoStatus.PROCESSING)
