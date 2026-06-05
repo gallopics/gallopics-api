@@ -79,12 +79,28 @@ class _FakePhoto:
     event_id = uuid.uuid4()
     class_id = uuid.uuid4()
     class_section_id = class_id
+    event_class_id = "1198540"
+    equipe_class_section_id = "1246005"
+    class_name = "Class A"
     photographer_id = uuid.uuid4()
+    photographer_display_name = None
+    photographer_avatar_url = None
     price = 10000
     currency = "SEK"
     status = PhotoStatus.READY
     visibility = PhotoVisibility.PUBLISHED
     tags = [_FakeTag()]
+    storage_key_original = None
+    storage_key_thumbnail = None
+    storage_key_preview = None
+    taken_at = datetime(2026, 1, 1, 10, 0)
+    equipe_start_id = "20834801"
+    equipe_rider_id = "6404463"
+    equipe_horse_id = "7796451"
+    matched_at = datetime(2026, 1, 1, 10, 1)
+    match_confidence = "high"
+    match_delta_seconds = 90
+    match_source = "equipe_time"
     created_at = datetime(2026, 1, 1)
     updated_at = datetime(2026, 1, 1)
 
@@ -129,6 +145,8 @@ def test_photo_response_includes_tags():
     assert resp.tags[0].value == "Anna"
     assert resp.class_id == _FakePhoto.class_id
     assert resp.class_section_id == _FakePhoto.class_section_id
+    assert resp.equipe_class_section_id == "1246005"
+    assert resp.match_confidence == "high"
 
 
 def test_event_result_response_from_orm():
