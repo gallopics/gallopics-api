@@ -153,7 +153,7 @@ class PhotoMatchingService:
         photo.equipe_start_id = str(start.get("id") or start.get("equipe_id") or "")
         photo.equipe_rider_id = str(start["rider_id"]) if start.get("rider_id") is not None else None
         photo.equipe_horse_id = str(start["horse_id"]) if start.get("horse_id") is not None else None
-        photo.matched_at = datetime.now(timezone.utc)
+        photo.matched_at = datetime.now(timezone.utc).replace(tzinfo=None)
         photo.match_confidence = match.confidence
         photo.match_delta_seconds = match.delta_seconds
         photo.match_source = "equipe_time"

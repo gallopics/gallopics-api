@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 from app.models.enums import OrderStatus, PhotoStatus, PhotoTagType, PhotoVisibility
 
@@ -45,6 +45,16 @@ class PhotoResponse(BaseModel):
     match_source: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+    @field_serializer("taken_at", "matched_at", when_used="json")
+    def serialize_optional_utc_datetime(self, value: Optional[datetime]) -> Optional[str]:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
+        return value.isoformat().replace("+00:00", "Z")
 
 
 class PhotographerResponse(BaseModel):
