@@ -232,6 +232,22 @@ class EventService:
         raw_schedule = await equipe_client.get_meeting_schedule(equipe_meeting_id)
         return self.normalize_equipe_schedule(event, raw_schedule)
 
+    async def import_equipe_meeting(
+        self,
+        equipe_client: EquipeClient,
+        meeting_id: str,
+    ) -> tuple[Event, bool]:
+        raw = await equipe_client.get_meeting_schedule(meeting_id)
+        normalized = normalize_equipe_meeting(raw)
+        equipe_id = normalized.pop("equipe_id", None)
+        if not equipe_id or not normalized.get("start_date"):
+            raise NotFoundError("Equipe meeting not found")
+
+        normalized["is_active_from_equipe"] = True
+        # Manual imports may be outside /meetings/recent; keep them active across recent-feed syncs.
+        normalized["equipe_last_seen_at"] = None
+        return await self.upsert_event_by_equipe_id(str(equipe_id), normalized)
+
     async def upsert_event_results(
         self, event_id: uuid.UUID, results: list[dict]
     ) -> list[EventResult]:
@@ -336,6 +352,7 @@ class EventService:
         result = await self.db.execute(
             update(Event)
             .where(Event.equipe_id.is_not(None))
+            .where(Event.equipe_last_seen_at.is_not(None))
             .where(Event.is_active_from_equipe.is_(True))
             .where(Event.equipe_id.not_in(seen_equipe_ids))
             .where(~has_photos)
