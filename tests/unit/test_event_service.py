@@ -4,6 +4,9 @@ from datetime import date
 import pytest
 
 from app.exceptions import NotFoundError
+from app.models.enums import PhotographerStatus, PhotoStatus, PhotoVisibility, UserRole
+from app.models.photographer import Photo, Photographer
+from app.models.user import User
 from app.schemas.event import EventFilters
 from app.services.event_service import EventService
 from tests.factories import make_event
@@ -181,6 +184,90 @@ async def test_sync_from_equipe_skips_non_swedish_meetings(service):
 
     assert result["created"] == 0
     assert result["skipped"] == 1
+
+
+async def test_sync_from_equipe_deactivates_stale_events_without_photos(service, db_session):
+    stale = await service.create_event(
+        make_event(name="Old Equipe Event", equipe_id="old-1", country="SWE")
+    )
+
+    class FakeEquipeClient:
+        async def get_meetings(self, params=None):
+            return [
+                {
+                    "id": "current-1",
+                    "display_name": "Current Equipe Event",
+                    "start_on": "2026-06-10",
+                    "venue_country": "SWE",
+                }
+            ]
+
+    result = await service.sync_from_equipe(FakeEquipeClient())
+    await db_session.refresh(stale)
+
+    assert result["deactivated"] == 1
+    assert stale.is_active_from_equipe is False
+
+    items, total = await service.list_events(EventFilters())
+    assert total == 1
+    assert items[0].equipe_id == "current-1"
+
+    all_items, all_total = await service.list_events(EventFilters(include_inactive=True))
+    assert all_total == 2
+    assert {event.equipe_id for event in all_items} == {"old-1", "current-1"}
+
+
+async def test_sync_from_equipe_keeps_stale_events_with_uploaded_photos(service, db_session):
+    stale = await service.create_event(
+        make_event(name="Uploaded Equipe Event", equipe_id="old-with-photo", country="SWE")
+    )
+    user = User(
+        clerk_user_id="clerk_stale_event_photo_user",
+        email="stale-photo@test.com",
+        role=UserRole.PHOTOGRAPHER,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    photographer = Photographer(
+        user_id=user.id,
+        slug="stale-photo-photographer",
+        display_name="Stale Photo Photographer",
+        status=PhotographerStatus.APPROVED,
+    )
+    db_session.add(photographer)
+    await db_session.flush()
+    db_session.add(
+        Photo(
+            event_id=stale.id,
+            photographer_id=photographer.id,
+            storage_key_original="originals/stale-photo.jpg",
+            price=10000,
+            status=PhotoStatus.READY,
+            visibility=PhotoVisibility.DRAFT,
+        )
+    )
+    await db_session.flush()
+
+    class FakeEquipeClient:
+        async def get_meetings(self, params=None):
+            return [
+                {
+                    "id": "current-2",
+                    "display_name": "Current Equipe Event",
+                    "start_on": "2026-06-10",
+                    "venue_country": "SWE",
+                }
+            ]
+
+    result = await service.sync_from_equipe(FakeEquipeClient())
+    await db_session.refresh(stale)
+
+    assert result["deactivated"] == 0
+    assert stale.is_active_from_equipe is True
+
+    items, total = await service.list_events(EventFilters())
+    assert total == 2
+    assert {event.equipe_id for event in items} == {"old-with-photo", "current-2"}
 
 
 async def test_update_event(service):
