@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from dateutil.parser import parse as parse_date
@@ -75,9 +75,13 @@ def _parse_optional_datetime(value: Optional[str], field_name: str) -> Optional[
     if not value:
         return None
     try:
-        return parse_date(value)
+        parsed = parse_date(value)
     except (TypeError, ValueError) as exc:
         raise BadRequestError(f"Invalid {field_name}") from exc
+
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 async def _match_uploaded_photos(db: AsyncSession, photos: list[Photo], event_id: uuid.UUID) -> None:
