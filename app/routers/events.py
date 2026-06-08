@@ -33,6 +33,7 @@ async def list_events(
     is_sustainable: Optional[bool] = None,
     search: Optional[str] = None,
     has_photos: Optional[bool] = None,
+    include_inactive: bool = False,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -48,6 +49,7 @@ async def list_events(
         is_sustainable=is_sustainable,
         search=search,
         has_photos=has_photos,
+        include_inactive=include_inactive,
     )
     service = EventService(db)
     items, total = await service.list_events(filters, page, page_size)

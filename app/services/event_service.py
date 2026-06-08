@@ -1,10 +1,10 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 import structlog
 from dateutil.parser import parse as parse_date
 from slugify import slugify
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import NotFoundError
@@ -38,6 +38,8 @@ class EventService:
             Event.id == photo_counts.c.event_id,
         )
 
+        if not filters.include_inactive:
+            query = query.where(Event.is_active_from_equipe.is_(True))
         if filters.date_from:
             query = query.where(Event.start_date >= filters.date_from)
         if filters.date_to:
@@ -273,9 +275,11 @@ class EventService:
         return {"created": created, "updated": updated, "errors": errors, "error_samples": error_samples}
 
     async def sync_from_equipe(self, equipe_client: EquipeClient, country: str = "swe") -> dict:
+        sync_started_at = datetime.utcnow()
         raw_meetings = await equipe_client.get_meetings(params={"country": country})
         created, updated, skipped, errors = 0, 0, 0, 0
         error_samples = []
+        seen_equipe_ids: set[str] = set()
         accepted_countries = {country.lower()}
         if country.lower() == "swe":
             accepted_countries.add("se")
@@ -293,6 +297,10 @@ class EventService:
                     if not equipe_id or not normalized.get("start_date"):
                         errors += 1
                         continue
+                    equipe_id = str(equipe_id)
+                    seen_equipe_ids.add(equipe_id)
+                    normalized["is_active_from_equipe"] = True
+                    normalized["equipe_last_seen_at"] = sync_started_at
                     event, is_new = await self.upsert_event_by_equipe_id(equipe_id, normalized)
                 if is_new:
                     created += 1
@@ -310,10 +318,28 @@ class EventService:
                         }
                     )
 
+        deactivated = await self._deactivate_stale_equipe_events(seen_equipe_ids)
         return {
             "created": created,
             "updated": updated,
             "skipped": skipped,
+            "deactivated": deactivated,
             "errors": errors,
             "error_samples": error_samples,
         }
+
+    async def _deactivate_stale_equipe_events(self, seen_equipe_ids: set[str]) -> int:
+        if not seen_equipe_ids:
+            return 0
+
+        has_photos = exists().where(Photo.event_id == Event.id)
+        result = await self.db.execute(
+            update(Event)
+            .where(Event.equipe_id.is_not(None))
+            .where(Event.is_active_from_equipe.is_(True))
+            .where(Event.equipe_id.not_in(seen_equipe_ids))
+            .where(~has_photos)
+            .values(is_active_from_equipe=False)
+        )
+        await self.db.flush()
+        return int(result.rowcount or 0)

@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import JSON, ForeignKey, Index, String
+from sqlalchemy import JSON, Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -27,6 +27,8 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     end_date: Mapped[Optional[date]] = mapped_column()
     status: Mapped[EventStatus] = mapped_column(default=EventStatus.UPCOMING)
     is_sustainable: Mapped[bool] = mapped_column(default=False)
+    is_active_from_equipe: Mapped[bool] = mapped_column(Boolean, default=True)
+    equipe_last_seen_at: Mapped[Optional[datetime]] = mapped_column()
     match_status: Mapped[MatchStatus] = mapped_column(default=MatchStatus.UNMATCHED)
     match_score: Mapped[Optional[float]] = mapped_column()
     match_method: Mapped[Optional[str]] = mapped_column(String)

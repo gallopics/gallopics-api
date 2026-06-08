@@ -26,6 +26,8 @@ class EventResponse(BaseModel):
     end_date: Optional[date] = None
     status: EventStatus
     is_sustainable: bool
+    is_active_from_equipe: bool
+    equipe_last_seen_at: Optional[datetime] = None
     match_status: MatchStatus
     match_score: Optional[float] = None
     photo_count: Optional[int] = None
@@ -44,6 +46,7 @@ class EventFilters(BaseModel):
     is_sustainable: Optional[bool] = None
     search: Optional[str] = None
     has_photos: Optional[bool] = None
+    include_inactive: bool = False
 
 
 class EventResultResponse(BaseModel):
