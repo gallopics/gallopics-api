@@ -6,15 +6,17 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import get_settings
 from app.database import get_db
 from app.integrations.clerk.auth import require_role
+from app.integrations.equipe.client import EquipeClient
 from app.models.enums import OrderStatus, UserRole
 from app.models.order import Order
-from app.models.user import User
 from app.schemas import PaginatedResponse
 from app.schemas.admin import ManualMatchRequest
 from app.schemas.event import EventResponse
 from app.schemas.order import OrderResponse
+from app.services.event_service import EventService
 from app.services.matching_service import MatchingService
 
 router = APIRouter(
@@ -71,3 +73,18 @@ async def unmatch(
     service = MatchingService(db)
     event = await service.unmatch(event_id)
     return EventResponse.model_validate(event)
+
+
+@router.post("/equipe/shows/{meeting_id}/import", response_model=EventResponse)
+async def import_equipe_show(
+    meeting_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    settings = get_settings()
+    equipe_client = EquipeClient(settings.equipe_base_url)
+    try:
+        service = EventService(db)
+        event, _ = await service.import_equipe_meeting(equipe_client, meeting_id)
+        return EventResponse.model_validate(event)
+    finally:
+        await equipe_client.close()

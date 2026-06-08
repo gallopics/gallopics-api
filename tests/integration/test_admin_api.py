@@ -1,6 +1,9 @@
 import uuid
 
-from app.models.enums import MatchStatus, OrderStatus
+import httpx
+import respx
+
+from app.models.enums import OrderStatus
 from app.models.event import Event
 from app.models.order import Order
 from tests.factories import make_event
@@ -82,3 +85,40 @@ async def test_unmatch_success(async_client, admin_auth_headers, db_session):
     )
     assert response.status_code == 200
     assert response.json()["match_status"] == "unmatched"
+
+
+@respx.mock
+async def test_import_equipe_show(async_client, admin_auth_headers, monkeypatch):
+    async def fake_fetch_clerk_user_claims(clerk_user_id, secret_key):
+        return {"email": "admin@example.com"}
+
+    monkeypatch.setattr(
+        "app.integrations.clerk.auth._fetch_clerk_user_claims",
+        fake_fetch_clerk_user_claims,
+    )
+    respx.get("https://online.equipe.com/api/v1/meetings/79213/schedule").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": 79213,
+                "display_name": "Ängelholms Ryttarförening",
+                "start_on": "2026-05-16",
+                "end_on": "2026-05-17",
+                "equipe_id": 91417,
+                "tdb_id": "82848",
+                "venue_country": "SWE",
+                "discipline": "show_jumping",
+            },
+        )
+    )
+
+    response = await async_client.post(
+        "/api/v1/admin/equipe/shows/79213/import",
+        headers=admin_auth_headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Ängelholms Ryttarförening"
+    assert data["equipe_id"] == "91417"
+    assert data["is_active_from_equipe"] is True
