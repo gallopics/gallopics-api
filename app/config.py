@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
-    cors_origins: str = "http://localhost:5173,https://gallopics.com,https://www.gallopics.com,https://gallopics-api.onrender.com"
+    api_public_base_url: str = ""
+    cors_origins: str = "http://localhost:5173,https://gallopics.com,https://www.gallopics.com"
+    max_upload_file_size_mb: int = 100
 
     # Database
     database_url: str = "postgresql+asyncpg://localhost/gallopics_dev"
@@ -30,6 +32,13 @@ class Settings(BaseSettings):
     klarna_api_url: str = "https://api.playground.klarna.com"
     klarna_username: str = ""
     klarna_password: str = ""
+
+    # Transactional email
+    transactional_email_enabled: bool = False
+    resend_api_url: str = "https://api.resend.com"
+    resend_api_key: str = ""
+    transactional_email_from: str = "Gallopics <onboarding@resend.dev>"
+    transactional_email_reply_to: str = ""
 
     # Storage
     storage_backend: str = "local"

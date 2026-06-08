@@ -65,6 +65,42 @@ async def test_upload_photos_accepts_multipart_payload(
     assert data[0]["tags"] == []
 
 
+async def test_upload_photos_rejects_files_over_configured_size(
+    async_client,
+    db_session,
+    photographer_user,
+    photographer_auth_headers,
+    monkeypatch,
+    tmp_path,
+):
+    from types import SimpleNamespace
+
+    import app.routers.photographer as photographer_router
+
+    await _seed_photographer(db_session, photographer_user)
+    event = await _seed_event(db_session, name="Oversized Upload Event")
+    monkeypatch.setattr(
+        photographer_router,
+        "_get_storage",
+        lambda: LocalStorageBackend(str(tmp_path / "uploads")),
+    )
+    monkeypatch.setattr(
+        photographer_router,
+        "get_settings",
+        lambda: SimpleNamespace(max_upload_file_size_mb=0),
+    )
+
+    response = await async_client.post(
+        "/api/v1/photographer/uploads",
+        headers=photographer_auth_headers,
+        data={"event_id": str(event.id)},
+        files={"files": ("too-large.png", PNG_1X1, "image/png")},
+    )
+
+    assert response.status_code == 400
+    assert "Maximum upload size is 0 MB" in response.json()["detail"]
+
+
 async def test_upload_photos_stores_class_ids(
     async_client,
     db_session,
@@ -136,6 +172,79 @@ async def test_upload_photos_stores_external_event_class_id(
     assert data[0]["class_section_id"] is None
     assert data[0]["event_class_id"] == "1198540"
     assert data[0]["class_name"] == "D09 · Prix St-Georges · CDI1*"
+
+
+async def test_upload_photos_matches_equipe_start_from_taken_at(
+    async_client,
+    db_session,
+    photographer_user,
+    photographer_auth_headers,
+    monkeypatch,
+    tmp_path,
+):
+    import app.routers.photographer as photographer_router
+
+    class FakeEquipeClient:
+        def __init__(self, base_url):
+            self.base_url = base_url
+
+        async def get_class_section(self, class_section_id):
+            assert class_section_id == "1246005"
+            return {
+                "id": "1246005",
+                "sec_per_start": 600,
+                "starts": [
+                    {
+                        "id": 20834801,
+                        "rider_id": 6404463,
+                        "horse_id": 7796451,
+                        "start_no": "2",
+                        "start_at": "2026-06-03T11:10:00+00:00",
+                        "rider_name": "Filippa Lagerqvist",
+                        "horse_name": "Licor Dos Rios",
+                    },
+                ],
+            }
+
+        async def close(self):
+            pass
+
+    await _seed_photographer(db_session, photographer_user)
+    event = await _seed_event(
+        db_session,
+        name="Equipe Matching Event",
+        raw_equipe_payload={"id": 79851},
+    )
+    monkeypatch.setattr(
+        photographer_router,
+        "_get_storage",
+        lambda: LocalStorageBackend(str(tmp_path / "uploads")),
+    )
+    monkeypatch.setattr(photographer_router, "EquipeClient", FakeEquipeClient)
+
+    response = await async_client.post(
+        "/api/v1/photographer/uploads",
+        headers=photographer_auth_headers,
+        data={
+            "event_id": str(event.id),
+            "equipe_class_section_id": "1246005",
+            "taken_at": "2026-06-03T11:12:20+00:00",
+        },
+        files={"files": ("test.png", PNG_1X1, "image/png")},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    tags = {(tag["type"], tag["value"]) for tag in data[0]["tags"]}
+    assert ("rider", "Filippa Lagerqvist") in tags
+    assert ("horse", "Licor Dos Rios") in tags
+    assert ("start_number", "2") in tags
+    assert data[0]["taken_at"] == "2026-06-03T11:12:20Z"
+    assert data[0]["equipe_class_section_id"] == "1246005"
+    assert data[0]["equipe_rider_id"] == "6404463"
+    assert data[0]["equipe_horse_id"] == "7796451"
+    assert data[0]["match_confidence"] == "high"
+    assert data[0]["match_source"] == "equipe_time"
 
 
 async def test_upload_photos_rejects_invalid_event_id(

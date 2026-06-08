@@ -14,9 +14,14 @@ from app.integrations.clerk.auth import ClerkAuth
 from app.integrations.klarna.client import KlarnaClient
 from app.models.enums import OrderStatus, PaymentTransactionStatus, PaymentTransactionType
 from app.models.user import User
-from app.schemas.checkout import AuthorizeCheckoutRequest, CheckoutSessionResponse, CreateCheckoutSessionRequest
+from app.schemas.checkout import (
+    AuthorizeCheckoutRequest,
+    CheckoutSessionResponse,
+    CreateCheckoutSessionRequest,
+)
 from app.schemas.order import OrderResponse
 from app.services.order_service import OrderService
+from app.services.transactional_email_service import TransactionalEmailService
 
 router = APIRouter(prefix="/api/v1/checkout", tags=["checkout"])
 
@@ -86,7 +91,7 @@ def _klarna_error(exc: Exception, action: str) -> ExternalServiceError:
 def _build_klarna_session_payload(body: CreateCheckoutSessionRequest) -> dict[str, Any]:
     order_amount = sum(item.total_amount for item in body.line_items)
     order_tax_amount = sum(item.total_tax_amount for item in body.line_items)
-    return {
+    payload = {
         "acquiring_channel": "ECOMMERCE",
         "intent": "buy",
         "purchase_country": body.purchase_country.upper(),
@@ -110,6 +115,9 @@ def _build_klarna_session_payload(body: CreateCheckoutSessionRequest) -> dict[st
             for index, item in enumerate(body.line_items)
         ],
     }
+    if body.customer_email:
+        payload["billing_address"] = {"email": body.customer_email}
+    return payload
 
 
 def _find_session_payload(order) -> dict[str, Any] | None:
@@ -125,6 +133,52 @@ def _capture_payload(order) -> dict[str, Any]:
         "captured_amount": order.amount,
         "description": f"Capture for order {order.id}",
     }
+
+
+def _capture_id_from_response(response: dict[str, Any] | None) -> str | None:
+    if not response:
+        return None
+    capture_id = response.get("capture_id")
+    if capture_id:
+        return str(capture_id)
+    location = response.get("location")
+    if isinstance(location, str):
+        return location.rstrip("/").split("/")[-1] or None
+    return None
+
+
+def _order_lines_with_download_urls(
+    request: Request,
+    order_id: uuid.UUID,
+    order_lines: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    settings = get_settings()
+    public_base_url = settings.api_public_base_url.rstrip("/")
+    enriched_lines = []
+    for item in order_lines:
+        enriched_item = dict(item)
+        photo_id = enriched_item.get("photo_id")
+        if photo_id:
+            if public_base_url:
+                thumbnail_url = f"{public_base_url}/api/v1/photographer/photos/{photo_id}/thumbnail"
+                download_url = (
+                    f"{public_base_url}/api/v1/photos/{photo_id}/download"
+                    f"?order_id={order_id}&inline=true"
+                )
+            else:
+                thumbnail_url = str(
+                    request.url_for("get_photo_thumbnail", photo_id=str(photo_id))
+                )
+                download_url = str(
+                    request.url_for("download_photo_file", photo_id=str(photo_id)).include_query_params(
+                        order_id=str(order_id),
+                        inline="true",
+                    )
+                )
+            enriched_item["thumbnail_url"] = thumbnail_url
+            enriched_item["download_url"] = download_url
+        enriched_lines.append(enriched_item)
+    return enriched_lines
 
 
 @router.post("/sessions", response_model=CheckoutSessionResponse)
@@ -185,6 +239,7 @@ async def create_session(
 @router.post("/authorize", response_model=OrderResponse)
 async def authorize(
     body: AuthorizeCheckoutRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     klarna: KlarnaClient = Depends(get_klarna_client),
 ):
@@ -227,7 +282,7 @@ async def authorize(
 
     capture_payload = _capture_payload(order)
     try:
-        await klarna.capture(klarna_order["order_id"], capture_payload)
+        capture_response = await klarna.capture(klarna_order["order_id"], capture_payload)
     except Exception as exc:
         await service.record_transaction(
             order.id,
@@ -241,6 +296,34 @@ async def authorize(
         )
         raise _klarna_error(exc, "capture") from exc
 
+    capture_id = _capture_id_from_response(capture_response)
+    communication_status = "skipped"
+    communication_error = None
+    if capture_id:
+        try:
+            await klarna.trigger_customer_communication(klarna_order["order_id"], capture_id)
+            communication_status = "triggered"
+        except Exception as exc:
+            communication_status = "failed"
+            communication_error = str(exc)
+
+    receipt_email = {"status": "skipped", "reason": "not_attempted"}
+    try:
+        receipt_line_items = _order_lines_with_download_urls(
+            request,
+            order.id,
+            order_payload["order_lines"],
+        )
+        receipt_email = await TransactionalEmailService(get_settings()).send_purchase_receipt(
+            recipient_email=order_payload.get("billing_address", {}).get("email"),
+            order_id=str(order.id),
+            amount=order.amount,
+            currency=order.currency,
+            line_items=receipt_line_items,
+        )
+    except Exception as exc:
+        receipt_email = {"status": "failed", "error": str(exc)}
+
     order = await service.update_order_status(order.id, OrderStatus.CAPTURED)
     await service.create_photo_purchases(order, order_payload["order_lines"])
     await service.record_transaction(
@@ -249,7 +332,11 @@ async def authorize(
         PaymentTransactionStatus.SUCCESS,
         payload={
             "klarna_order_id": klarna_order["order_id"],
+            "klarna_capture_id": capture_id,
             "klarna_capture_payload": capture_payload,
+            "klarna_customer_communication_status": communication_status,
+            "klarna_customer_communication_error": communication_error,
+            "purchase_receipt_email": receipt_email,
         },
     )
 

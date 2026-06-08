@@ -1,16 +1,22 @@
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
+from dateutil.parser import parse as parse_date
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from PIL import UnidentifiedImageError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.database import get_db
 from app.exceptions import BadRequestError, ForbiddenError, NotFoundError
 from app.integrations.clerk.auth import get_current_user, require_role
+from app.integrations.equipe.client import EquipeClient
 from app.models.enums import PhotoVisibility, UserRole
+from app.models.event import Event
+from app.models.photographer import Photo
 from app.models.user import User
 from app.schemas import PaginatedResponse
 from app.schemas.event import EventResponse
@@ -25,6 +31,7 @@ from app.schemas.photographer import (
     UploadSessionResponse,
     UpsertPhotographerProfileRequest,
 )
+from app.services.photo_matching_service import PhotoMatchingService
 from app.services.photographer_service import PhotographerService
 from app.storage.base import get_storage_backend
 
@@ -37,13 +44,62 @@ def _get_storage():
     return get_storage_backend(settings)
 
 
+async def _validate_upload_file_size(file: UploadFile, max_size_bytes: int) -> None:
+    size = 0
+    while chunk := await file.read(1024 * 1024):
+        size += len(chunk)
+        if size > max_size_bytes:
+            await file.seek(0)
+            max_size_mb = max_size_bytes // (1024 * 1024)
+            raise BadRequestError(
+                f"File '{file.filename}' is too large. Maximum upload size is {max_size_mb} MB."
+            )
+    await file.seek(0)
+
+
 async def _photo_responses(db: AsyncSession, photos) -> list[PhotoResponse]:
-    responses = []
-    for photo in photos:
-        await db.refresh(photo)
-        set_committed_value(photo, "tags", [])
-        responses.append(PhotoResponse.model_validate(photo))
-    return responses
+    photo_ids = [photo.id for photo in photos]
+    result = await db.execute(
+        select(Photo)
+        .where(Photo.id.in_(photo_ids))
+        .options(selectinload(Photo.tags), selectinload(Photo.photographer))
+    )
+    photos_by_id = {photo.id: photo for photo in result.scalars().all()}
+    return [
+        PhotoResponse.model_validate(photos_by_id.get(photo.id, photo))
+        for photo in photos
+    ]
+
+
+def _parse_optional_datetime(value: Optional[str], field_name: str) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = parse_date(value)
+    except (TypeError, ValueError) as exc:
+        raise BadRequestError(f"Invalid {field_name}") from exc
+
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+async def _match_uploaded_photos(db: AsyncSession, photos: list[Photo], event_id: uuid.UUID) -> None:
+    settings = get_settings()
+    if not settings.equipe_base_url:
+        return
+
+    event = await db.get(Event, event_id)
+    if not event:
+        return
+
+    equipe_client = EquipeClient(settings.equipe_base_url)
+    try:
+        matcher = PhotoMatchingService(db, equipe_client)
+        for photo in photos:
+            await matcher.try_match_photo(photo, event)
+    finally:
+        await equipe_client.close()
 
 
 @router.get("/me", response_model=PhotographerResponse)
@@ -171,7 +227,9 @@ async def create_upload_session(
         body.class_id,
         body.class_section_id,
         body.event_class_id,
+        body.equipe_class_section_id,
         body.class_name,
+        body.taken_at,
     )
     return UploadSessionResponse(**result)
 
@@ -182,7 +240,9 @@ async def upload_photos(
     class_id: Optional[str] = Form(None),
     class_section_id: Optional[str] = Form(None),
     event_class_id: Optional[str] = Form(None),
+    equipe_class_section_id: Optional[str] = Form(None),
     class_name: Optional[str] = Form(None),
+    taken_at: Optional[str] = Form(None),
     files: list[UploadFile] = File(...),
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
     db: AsyncSession = Depends(get_db),
@@ -202,9 +262,12 @@ async def upload_photos(
     photographer = await service.get_photographer_for_user(user.id)
 
     # Validate files
+    settings = get_settings()
+    max_upload_size_bytes = settings.max_upload_file_size_mb * 1024 * 1024
     valid_files = []
     for file in files:
         if file.content_type and file.content_type.startswith("image/"):
+            await _validate_upload_file_size(file, max_upload_size_bytes)
             valid_files.append(file)
         else:
             raise BadRequestError(f"File '{file.filename}' is not an image")
@@ -221,6 +284,7 @@ async def upload_photos(
 
     class_uuid = None
     class_section_uuid = None
+    external_class_section_id = equipe_class_section_id
     if class_id:
         try:
             class_uuid = _uuid.UUID(class_id)
@@ -229,8 +293,10 @@ async def upload_photos(
     if class_section_id:
         try:
             class_section_uuid = _uuid.UUID(class_section_id)
-        except ValueError as exc:
-            raise BadRequestError("Invalid class_section_id") from exc
+        except ValueError:
+            external_class_section_id = class_section_id
+
+    parsed_taken_at = _parse_optional_datetime(taken_at, "taken_at")
 
     # Save files to storage
     storage_keys = []
@@ -248,7 +314,9 @@ async def upload_photos(
         class_id=class_uuid,
         class_section_id=class_section_uuid or class_uuid,
         event_class_id=event_class_id,
+        equipe_class_section_id=external_class_section_id,
         class_name=class_name,
+        taken_at=parsed_taken_at,
     )
 
     # Trigger image processing (thumbnails, previews, watermark)
@@ -260,6 +328,7 @@ async def upload_photos(
     except (OSError, UnidentifiedImageError) as exc:
         raise BadRequestError("One or more uploaded files are not supported image formats") from exc
 
+    await _match_uploaded_photos(db, photos, event_uuid)
     await db.flush()
 
     return await _photo_responses(db, photos)
@@ -292,6 +361,7 @@ async def complete_upload(
         if session_data.get("class_section_id")
         else None
     )
+    taken_at = _parse_optional_datetime(session_data.get("taken_at"), "taken_at")
     storage_keys = session_data["storage_keys"]
 
     # Create Photo records
@@ -303,7 +373,9 @@ async def complete_upload(
         class_id=class_id,
         class_section_id=class_section_id,
         event_class_id=session_data.get("event_class_id"),
+        equipe_class_section_id=session_data.get("equipe_class_section_id"),
         class_name=session_data.get("class_name"),
+        taken_at=taken_at,
     )
 
     # Commit the transaction so photos are queryable
@@ -318,6 +390,7 @@ async def complete_upload(
     except (OSError, UnidentifiedImageError) as exc:
         raise BadRequestError("One or more uploaded files are not supported image formats") from exc
 
+    await _match_uploaded_photos(db, photos, event_id)
     await db.flush()
 
     return await _photo_responses(db, photos)

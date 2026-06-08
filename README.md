@@ -34,21 +34,21 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 The API is now available at http://localhost:8000. Interactive docs at http://localhost:8000/docs.
 
-## Render Deployment
+## Server Deployment
 
-This repo includes a `render.yaml` Blueprint that provisions the web service, Postgres database, and Redis-compatible Key Value instance.
+Production runs on the server. Use the deploy script on the server before restarting the API process.
 
-Render runs `scripts/deploy.sh` before starting the web service. That command:
+The deploy script:
 
 1. Applies Alembic migrations so the database schema matches the SQLAlchemy models.
 2. Populates event data by running the TDB and Equipe sync logic directly.
 
-Set `TDB_BASE_URL` and `EQUIPE_BASE_URL` in Render for population to run. If either value is empty, that sync is skipped.
+Set `TDB_BASE_URL` and `EQUIPE_BASE_URL` in the server environment for population to run. If either value is empty, that sync is skipped.
 
-After the service is live, you can rerun the same imports through the API:
+After the service is live, you can rerun the same imports through the API by pointing `SERVICE_URL` at the server:
 
 ```bash
-SERVICE_URL=https://gallopics-api.onrender.com bash scripts/post_deploy_sync.sh
+SERVICE_URL=http://82.96.43.103:8081 bash scripts/post_deploy_sync.sh
 ```
 
 ## Running Tests
@@ -175,8 +175,14 @@ See `.env.example` for the full list. Key variables:
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://localhost/gallopics_dev` |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379/0` |
+| `API_PUBLIC_BASE_URL` | Public API URL used for email download links | -- |
 | `CLERK_JWKS_URL` | Clerk JWKS endpoint for JWT validation | -- |
 | `KLARNA_API_URL` | Klarna API base URL | `https://api.playground.klarna.com` |
+| `TRANSACTIONAL_EMAIL_ENABLED` | Send Gallopics purchase receipts through Resend | `false` |
+| `RESEND_API_KEY` | Resend API key for transactional email | -- |
+| `RESEND_API_URL` | Resend API base URL | `https://api.resend.com` |
+| `TRANSACTIONAL_EMAIL_FROM` | From address for purchase receipts | `Gallopics <onboarding@resend.dev>` |
+| `TRANSACTIONAL_EMAIL_REPLY_TO` | Optional reply-to address for purchase receipts | -- |
 | `STORAGE_BACKEND` | `local` or `s3` | `local` |
 | `STORAGE_LOCAL_PATH` | Path for local file storage | `./uploads` |
 | `CELERY_BROKER_URL` | Redis URL for Celery broker | `redis://localhost:6379/1` |

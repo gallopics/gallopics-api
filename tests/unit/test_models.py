@@ -128,7 +128,22 @@ def test_photo_default_status():
 
 def test_photo_has_class_ids():
     cols = {c.name for c in Photo.__table__.columns}
-    assert {"class_id", "class_section_id"}.issubset(cols)
+    assert {"class_id", "class_section_id", "equipe_class_section_id"}.issubset(cols)
+
+
+def test_photo_has_equipe_matching_fields():
+    cols = {c.name for c in Photo.__table__.columns}
+    expected = {
+        "taken_at",
+        "equipe_start_id",
+        "equipe_rider_id",
+        "equipe_horse_id",
+        "matched_at",
+        "match_confidence",
+        "match_delta_seconds",
+        "match_source",
+    }
+    assert expected.issubset(cols)
 
 
 def test_event_default_match_status():

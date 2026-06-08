@@ -30,17 +30,22 @@ class GalleryService:
                 Photo.status == PhotoStatus.READY,
             )
             .options(selectinload(Photo.tags))
+            .options(selectinload(Photo.photographer))
         )
         if class_id:
             try:
                 class_uuid = uuid.UUID(class_id)
             except ValueError:
-                query = query.where(Photo.event_class_id == class_id)
+                query = query.where(
+                    (Photo.event_class_id == class_id)
+                    | (Photo.equipe_class_section_id == class_id)
+                )
             else:
                 query = query.where(
                     (Photo.class_id == class_uuid)
                     | (Photo.class_section_id == class_uuid)
                     | (Photo.event_class_id == class_id)
+                    | (Photo.equipe_class_section_id == class_id)
                 )
 
         count_query = select(func.count()).select_from(query.subquery())
@@ -68,6 +73,7 @@ class GalleryService:
                 PhotoTag.value.ilike(f"%{query_str}%"),
             )
             .options(selectinload(Photo.tags))
+            .options(selectinload(Photo.photographer))
         )
         if tag_type:
             query = query.where(PhotoTag.type == tag_type)
@@ -75,12 +81,16 @@ class GalleryService:
             try:
                 class_uuid = uuid.UUID(class_id)
             except ValueError:
-                query = query.where(Photo.event_class_id == class_id)
+                query = query.where(
+                    (Photo.event_class_id == class_id)
+                    | (Photo.equipe_class_section_id == class_id)
+                )
             else:
                 query = query.where(
                     (Photo.class_id == class_uuid)
                     | (Photo.class_section_id == class_uuid)
                     | (Photo.event_class_id == class_id)
+                    | (Photo.equipe_class_section_id == class_id)
                 )
 
         result = await self.db.execute(query)
@@ -93,7 +103,7 @@ class GalleryService:
                 Photo.id == photo_id,
                 Photo.status == PhotoStatus.READY,
             )
-            .options(selectinload(Photo.tags))
+            .options(selectinload(Photo.tags), selectinload(Photo.photographer))
         )
         photo = result.scalar_one_or_none()
         if not photo:

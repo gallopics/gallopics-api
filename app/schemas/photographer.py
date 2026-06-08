@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 from app.models.enums import OrderStatus, PhotoStatus, PhotoTagType, PhotoVisibility
 
@@ -22,8 +22,11 @@ class PhotoResponse(BaseModel):
     class_id: Optional[uuid.UUID] = None
     class_section_id: Optional[uuid.UUID] = None
     event_class_id: Optional[str] = None
+    equipe_class_section_id: Optional[str] = None
     class_name: Optional[str] = None
     photographer_id: uuid.UUID
+    photographer_display_name: Optional[str] = None
+    photographer_avatar_url: Optional[str] = None
     price: int
     currency: str
     status: PhotoStatus
@@ -32,8 +35,26 @@ class PhotoResponse(BaseModel):
     storage_key_original: Optional[str] = None
     storage_key_thumbnail: Optional[str] = None
     storage_key_preview: Optional[str] = None
+    taken_at: Optional[datetime] = None
+    equipe_start_id: Optional[str] = None
+    equipe_rider_id: Optional[str] = None
+    equipe_horse_id: Optional[str] = None
+    matched_at: Optional[datetime] = None
+    match_confidence: Optional[str] = None
+    match_delta_seconds: Optional[int] = None
+    match_source: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+    @field_serializer("taken_at", "matched_at", when_used="json")
+    def serialize_optional_utc_datetime(self, value: Optional[datetime]) -> Optional[str]:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
+        return value.isoformat().replace("+00:00", "Z")
 
 
 class PhotographerResponse(BaseModel):
@@ -74,7 +95,9 @@ class CreateUploadSessionRequest(BaseModel):
     class_id: Optional[uuid.UUID] = None
     class_section_id: Optional[uuid.UUID] = None
     event_class_id: Optional[str] = None
+    equipe_class_section_id: Optional[str] = None
     class_name: Optional[str] = None
+    taken_at: Optional[datetime] = None
     files: list[FileInfo]
 
 

@@ -49,6 +49,18 @@ def _klarna_error(exc: Exception, action: str) -> ExternalServiceError:
     return ExternalServiceError(f"Klarna {action} failed: {exc}")
 
 
+def _capture_id_from_response(response: dict | None) -> str | None:
+    if not response:
+        return None
+    capture_id = response.get("capture_id")
+    if capture_id:
+        return str(capture_id)
+    location = response.get("location")
+    if isinstance(location, str):
+        return location.rstrip("/").split("/")[-1] or None
+    return None
+
+
 @router.get("/{order_id}", response_model=OrderResponse)
 async def get_order(
     order_id: uuid.UUID,
@@ -79,7 +91,7 @@ async def capture(
     }
     if order.klarna_order_id:
         try:
-            await klarna.capture(order.klarna_order_id, payload)
+            capture_response = await klarna.capture(order.klarna_order_id, payload)
         except Exception as exc:
             await service.record_transaction(
                 order_id,
@@ -92,12 +104,32 @@ async def capture(
                 },
             )
             raise _klarna_error(exc, "capture") from exc
+        capture_id = _capture_id_from_response(capture_response)
+        communication_status = "skipped"
+        communication_error = None
+        if capture_id:
+            try:
+                await klarna.trigger_customer_communication(order.klarna_order_id, capture_id)
+                communication_status = "triggered"
+            except Exception as exc:
+                communication_status = "failed"
+                communication_error = str(exc)
+    else:
+        capture_id = None
+        communication_status = None
+        communication_error = None
     order = await service.update_order_status(order_id, OrderStatus.CAPTURED)
     await service.record_transaction(
         order_id,
         PaymentTransactionType.CAPTURE,
         PaymentTransactionStatus.SUCCESS,
-        payload={"klarna_order_id": order.klarna_order_id, "klarna_capture_payload": payload}
+        payload={
+            "klarna_order_id": order.klarna_order_id,
+            "klarna_capture_id": capture_id,
+            "klarna_capture_payload": payload,
+            "klarna_customer_communication_status": communication_status,
+            "klarna_customer_communication_error": communication_error,
+        }
         if order.klarna_order_id
         else None,
     )

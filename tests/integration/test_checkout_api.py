@@ -1,3 +1,6 @@
+from unittest.mock import AsyncMock, patch
+
+from app.config import get_settings
 from app.main import app
 from app.models.enums import PhotographerStatus, PhotoStatus, PhotoVisibility, UserRole
 from app.models.event import Event
@@ -12,6 +15,7 @@ class FakeKlarnaClient:
         self.sessions = []
         self.orders = []
         self.captures = []
+        self.customer_communications = []
 
     async def create_session(self, payload):
         self.sessions.append(payload)
@@ -30,6 +34,10 @@ class FakeKlarnaClient:
 
     async def capture(self, order_id, payload):
         self.captures.append((order_id, payload))
+        return {"capture_id": "klarna-capture-test"}
+
+    async def trigger_customer_communication(self, order_id, capture_id):
+        self.customer_communications.append((order_id, capture_id))
 
 
 def _override_klarna(fake):
@@ -64,6 +72,19 @@ async def test_create_session_authenticated(async_client, auth_headers):
     assert fake.sessions[0]["intent"] == "buy"
     assert fake.sessions[0]["purchase_country"] == "SE"
     assert fake.sessions[0]["order_amount"] == 5000
+
+
+async def test_create_session_includes_customer_email(async_client, auth_headers):
+    fake = FakeKlarnaClient()
+    _override_klarna(fake)
+    response = await async_client.post("/api/v1/checkout/sessions", json={
+        "line_items": [{"name": "Photo", "quantity": 1, "unit_price": 5000, "total_amount": 5000}],
+        "idempotency_key": "key-checkout-email-1",
+        "customer_email": "buyer@example.com",
+    }, headers=auth_headers)
+
+    assert response.status_code == 200
+    assert fake.sessions[0]["billing_address"] == {"email": "buyer@example.com"}
 
 
 async def test_create_session_idempotent(async_client, auth_headers):
@@ -103,11 +124,39 @@ async def test_authorize_success(async_client, auth_headers):
             {"captured_amount": 5000, "description": f"Capture for order {order_id}"},
         )
     ]
+    assert fake.customer_communications == [("klarna-order-test", "klarna-capture-test")]
 
 
-async def test_authorize_creates_photo_purchase(async_client, db_session):
+async def test_authorize_sends_purchase_receipt(async_client, auth_headers):
     fake = FakeKlarnaClient()
     _override_klarna(fake)
+    with patch(
+        "app.routers.checkout.TransactionalEmailService.send_purchase_receipt",
+        new_callable=AsyncMock,
+    ) as send_receipt:
+        send_receipt.return_value = {"status": "sent", "provider": "resend"}
+        r = await async_client.post("/api/v1/checkout/sessions", json={
+            "line_items": [{"name": "Photo", "quantity": 1, "unit_price": 5000, "total_amount": 5000}],
+            "idempotency_key": "key-auth-email-1",
+            "customer_email": "buyer@example.com",
+        }, headers=auth_headers)
+        order_id = r.json()["order_id"]
+
+        response = await async_client.post("/api/v1/checkout/authorize", json={
+            "order_id": order_id,
+            "authorization_token": "token-email",
+        }, headers=auth_headers)
+
+    assert response.status_code == 200
+    send_receipt.assert_awaited_once()
+    assert send_receipt.await_args.kwargs["recipient_email"] == "buyer@example.com"
+
+
+async def test_authorize_creates_photo_purchase(async_client, db_session, monkeypatch):
+    fake = FakeKlarnaClient()
+    _override_klarna(fake)
+    get_settings.cache_clear()
+    monkeypatch.setenv("API_PUBLIC_BASE_URL", "http://82.96.43.103:8081")
 
     photographer_user = User(
         clerk_user_id="clerk_purchase_photo",
@@ -151,16 +200,35 @@ async def test_authorize_creates_photo_purchase(async_client, db_session):
                 }
             ],
             "idempotency_key": "key-photo-purchase",
+            "customer_email": "buyer@example.com",
         },
     )
     order_id = session_response.json()["order_id"]
 
-    authorize_response = await async_client.post(
-        "/api/v1/checkout/authorize",
-        json={"order_id": order_id, "authorization_token": "token-photo"},
-    )
+    with patch(
+        "app.routers.checkout.TransactionalEmailService.send_purchase_receipt",
+        new_callable=AsyncMock,
+    ) as send_receipt:
+        send_receipt.return_value = {"status": "sent", "provider": "resend"}
+        authorize_response = await async_client.post(
+            "/api/v1/checkout/authorize",
+            json={"order_id": order_id, "authorization_token": "token-photo"},
+        )
 
     assert authorize_response.status_code == 200
+    send_receipt.assert_awaited_once()
+    receipt_item = send_receipt.await_args.kwargs["line_items"][0]
+    assert (
+        receipt_item["download_url"]
+        == f"http://82.96.43.103:8081/api/v1/photos/{photo.id}/download?order_id={order_id}&inline=true"
+    )
+    assert (
+        receipt_item["thumbnail_url"]
+        == f"http://82.96.43.103:8081/api/v1/photographer/photos/{photo.id}/thumbnail"
+    )
+    assert f"order_id={order_id}" in receipt_item["download_url"]
+    assert "inline=true" in receipt_item["download_url"]
+
     download_response = await async_client.post(
         f"/api/v1/photos/{photo.id}/download",
         json={"order_id": order_id},
@@ -168,3 +236,5 @@ async def test_authorize_creates_photo_purchase(async_client, db_session):
     assert download_response.status_code == 200
     assert f"/api/v1/photos/{photo.id}/download" in download_response.json()["url"]
     assert f"order_id={order_id}" in download_response.json()["url"]
+    assert "inline=true" not in download_response.json()["url"]
+    get_settings.cache_clear()

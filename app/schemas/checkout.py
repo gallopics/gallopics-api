@@ -28,6 +28,7 @@ class LineItem(BaseModel):
 class CreateCheckoutSessionRequest(BaseModel):
     line_items: list[LineItem] = Field(min_length=1)
     idempotency_key: str
+    customer_email: Optional[str] = None
     purchase_country: str = "SE"
     purchase_currency: str = "SEK"
     locale: str = "sv-SE"
