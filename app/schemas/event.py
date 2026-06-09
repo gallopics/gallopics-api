@@ -62,6 +62,16 @@ class EventResultResponse(BaseModel):
     published_at: Optional[datetime] = None
 
 
+class EventClassSectionResponse(BaseModel):
+    id: str
+    meeting_class_id: Optional[str] = None
+    categories: list[str] = []
+    sec_per_start: Optional[int] = None
+    finish_at: Optional[str] = None
+    state: Optional[str] = None
+    total: Optional[int] = None
+
+
 class EventClassResponse(BaseModel):
     id: str
     name: str
@@ -71,6 +81,7 @@ class EventClassResponse(BaseModel):
     arena: str
     discipline: Optional[str] = None
     position: int = 0
+    class_sections: list[EventClassSectionResponse] = []
 
 
 class EventScheduleDayResponse(BaseModel):
