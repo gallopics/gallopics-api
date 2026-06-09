@@ -193,6 +193,23 @@ class EventService:
             class_no = raw_class.get("class_no")
             name = raw_class["name"]
             display_name = f"{class_no} · {name}" if class_no else name
+            class_sections = [
+                {
+                    "id": str(section["id"]),
+                    "meeting_class_id": (
+                        str(section["meeting_class_id"])
+                        if section.get("meeting_class_id") is not None
+                        else str(raw_class["id"])
+                    ),
+                    "categories": section.get("categories") or [],
+                    "sec_per_start": section.get("sec_per_start"),
+                    "finish_at": section.get("finish_at"),
+                    "state": section.get("state"),
+                    "total": section.get("total"),
+                }
+                for section in raw_class.get("class_sections") or []
+                if section.get("id") is not None
+            ]
             class_item = {
                 "id": str(raw_class["id"]),
                 "name": display_name,
@@ -202,6 +219,7 @@ class EventService:
                 "arena": raw_class.get("arena") or "Main Arena",
                 "discipline": raw_class.get("discipline") or raw_schedule.get("discipline"),
                 "position": raw_class.get("position") or 0,
+                "class_sections": class_sections,
             }
             classes_by_date.setdefault(class_date, []).append(class_item)
 
