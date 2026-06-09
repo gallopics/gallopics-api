@@ -79,7 +79,7 @@ class PhotoMatchingService:
         best_delta = None
 
         for start in starts:
-            start_at = _parse_datetime(start.get("start_at"))
+            start_at = _parse_datetime(start.get("start_at") or start.get("result_at"))
             if not start_at:
                 continue
 
@@ -223,7 +223,7 @@ class PhotoMatchingService:
         photo.match_delta_seconds = match.delta_seconds
         photo.match_source = "equipe_time"
 
-        if match.confidence == "high":
+        if match.confidence in {"high", "medium"}:
             self._apply_match_tags(photo, start)
 
         await self.db.flush()

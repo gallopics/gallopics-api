@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 
+from sqlalchemy import select
+
+from app.models.enums import PhotoTagType
 from app.models.event import Event
-from app.models.photographer import Photo
+from app.models.photographer import Photo, PhotoTag
 from app.services.photo_matching_service import PhotoMatchingService
 
 
@@ -65,7 +68,8 @@ async def test_match_photo_resolves_meeting_class_id_to_nearest_section(db_sessi
                     "starts": [
                         {
                             "id": 1,
-                            "start_at": "2026-05-17T12:17:30+02:00",
+                            "start_at": None,
+                            "result_at": "2026-05-17T12:17:30+02:00",
                             "rider_id": 6359431,
                             "horse_id": 7739821,
                             "start_no": "1",
@@ -96,15 +100,17 @@ async def test_match_photo_resolves_meeting_class_id_to_nearest_section(db_sessi
         country="SWE",
         raw_equipe_payload={"id": 79213},
     )
+    db_session.add(event)
+    await db_session.flush()
+
     photo = Photo(
         event_id=event.id,
         photographer_id=event.id,
         storage_key_original="originals/test.jpg",
         price=10000,
         equipe_class_section_id="1208737",
-        taken_at=datetime(2026, 5, 17, 12, 15, 40, tzinfo=timezone.utc),
+        taken_at=datetime(2026, 5, 17, 10, 15, 40, tzinfo=timezone.utc),
     )
-    db_session.add(event)
     db_session.add(photo)
     await db_session.flush()
 
@@ -117,4 +123,13 @@ async def test_match_photo_resolves_meeting_class_id_to_nearest_section(db_sessi
     assert photo.equipe_class_section_id == "1236758"
     assert photo.equipe_rider_id == "6359431"
     assert photo.equipe_horse_id == "7739821"
-    assert photo.match_confidence == "high"
+    assert photo.match_confidence == "medium"
+
+    tags = {
+        tag.type: tag.value
+        for tag in (
+            await db_session.scalars(select(PhotoTag).where(PhotoTag.photo_id == photo.id))
+        ).all()
+    }
+    assert tags[PhotoTagType.RIDER] == "Amanda Helgemo"
+    assert tags[PhotoTagType.HORSE] == "Cortina D'Ampezzo"
