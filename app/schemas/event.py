@@ -72,6 +72,16 @@ class EventClassSectionResponse(BaseModel):
     total: Optional[int] = None
 
 
+class EventClassSectionStartResponse(BaseModel):
+    id: str
+    rider_id: Optional[str] = None
+    horse_id: Optional[str] = None
+    rider_name: Optional[str] = None
+    horse_name: Optional[str] = None
+    start_no: Optional[str] = None
+    result_at: Optional[str] = None
+
+
 class EventClassResponse(BaseModel):
     id: str
     name: str
