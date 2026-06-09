@@ -43,6 +43,41 @@ def test_find_nearest_start_returns_none_outside_window(db_session):
     assert match is None
 
 
+def test_find_nearest_start_estimates_show_jumping_start_times(db_session):
+    service = PhotoMatchingService(db_session, equipe_client=None)
+    match = service.find_nearest_start(
+        datetime(2026, 5, 17, 12, 15, 0, tzinfo=timezone.utc),
+        {
+            "sec_per_start": 128,
+            "starts": [
+                {
+                    "id": 20741323,
+                    "position": 1001,
+                    "start_no": "2",
+                    "result_at": "2026-05-17T14:14:49+02:00",
+                    "rider_name": "Katarina Langvik Carstensen",
+                    "horse_name": "My Dark Favorite (SWB)",
+                    "results": [{"time": 131.0}],
+                },
+                {
+                    "id": 20686567,
+                    "position": 1002,
+                    "start_no": "3",
+                    "result_at": "2026-05-17T14:16:42+02:00",
+                    "rider_name": "Amanda Helgemo",
+                    "horse_name": "Cortina D'Ampezzo (SWB)",
+                    "results": [{"status": "eliminated"}],
+                },
+            ],
+        },
+    )
+
+    assert match is not None
+    assert match.start["id"] == 20686567
+    assert match.delta_seconds == 14
+    assert match.confidence == "high"
+
+
 async def test_match_photo_resolves_meeting_class_id_to_nearest_section(db_session):
     class FakeEquipeClient:
         async def get_meeting_schedule(self, meeting_id):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import structlog
@@ -43,6 +43,70 @@ def _parse_datetime(value: str | None) -> Optional[datetime]:
     return _as_aware_utc(parsed)
 
 
+def _start_order(start: dict) -> tuple[int, int]:
+    start_no = start.get("start_no")
+    if start_no is not None and str(start_no).isdigit():
+        return (0, int(start_no))
+    position = start.get("position")
+    if isinstance(position, int):
+        return (1, position)
+    return (2, 0)
+
+
+def _result_time_seconds(start: dict) -> Optional[float]:
+    for result in start.get("results") or []:
+        value = result.get("time")
+        if isinstance(value, (int, float)) and value > 0:
+            return float(value)
+    return None
+
+
+def _estimated_start_from_result(start: dict) -> Optional[datetime]:
+    start_at = _parse_datetime(start.get("start_at"))
+    if start_at:
+        return start_at
+
+    result_at = _parse_datetime(start.get("result_at"))
+    result_time = _result_time_seconds(start)
+    if result_at and result_time:
+        return result_at - timedelta(seconds=result_time)
+
+    return None
+
+
+def _estimated_start_times(raw_class_section: dict) -> dict[int, datetime]:
+    starts = raw_class_section.get("starts") or []
+    estimates: dict[int, datetime] = {}
+    ordered_starts = sorted(enumerate(starts), key=lambda item: _start_order(item[1]))
+    ordered_indexes = [index for index, _start in ordered_starts]
+
+    for index, start in enumerate(starts):
+        estimated = _estimated_start_from_result(start)
+        if estimated:
+            estimates[index] = estimated
+
+    sec_per_start = raw_class_section.get("sec_per_start")
+    if not isinstance(sec_per_start, int) or sec_per_start <= 0 or not estimates:
+        return estimates
+
+    order_positions = {start_index: order for order, start_index in enumerate(ordered_indexes)}
+    for index in range(len(starts)):
+        if index in estimates:
+            continue
+
+        index_order = order_positions[index]
+        nearest_index = min(
+            estimates,
+            key=lambda estimate_index: abs(order_positions[estimate_index] - index_order),
+        )
+        order_delta = index_order - order_positions[nearest_index]
+        estimates[index] = estimates[nearest_index] + timedelta(
+            seconds=order_delta * sec_per_start
+        )
+
+    return estimates
+
+
 def _confidence(delta_seconds: int, sec_per_start: int | None = None) -> str:
     if delta_seconds <= 90:
         return "high"
@@ -78,8 +142,10 @@ class PhotoMatchingService:
         best_start = None
         best_delta = None
 
-        for start in starts:
-            start_at = _parse_datetime(start.get("start_at") or start.get("result_at"))
+        start_times = _estimated_start_times(raw_class_section)
+
+        for index, start in enumerate(starts):
+            start_at = start_times.get(index) or _parse_datetime(start.get("result_at"))
             if not start_at:
                 continue
 
