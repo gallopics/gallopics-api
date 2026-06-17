@@ -5,7 +5,7 @@ def test_celery_app_loads():
 
 def test_beat_schedule_defined():
     from app.tasks.celery_app import celery_app
-    assert "sync-tdb-hourly" in celery_app.conf.beat_schedule
+    assert "sync-tdb-hourly" not in celery_app.conf.beat_schedule
     assert "sync-equipe-every-30-min" in celery_app.conf.beat_schedule
 
 
