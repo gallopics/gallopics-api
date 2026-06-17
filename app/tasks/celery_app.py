@@ -9,6 +9,11 @@ celery_app = Celery(
     "gallopics",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
+    include=[
+        "app.tasks.equipe_sync",
+        "app.tasks.image_processing",
+        "app.tasks.matching",
+    ],
 )
 
 celery_app.conf.update(
