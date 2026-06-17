@@ -41,15 +41,23 @@ Production runs on the server. Use the deploy script on the server before restar
 The deploy script:
 
 1. Applies Alembic migrations so the database schema matches the SQLAlchemy models.
-2. Populates event data by running the TDB and Equipe sync logic directly.
+2. Populates event data by running the Equipe sync logic directly.
 
-Set `TDB_BASE_URL` and `EQUIPE_BASE_URL` in the server environment for population to run. If either value is empty, that sync is skipped.
+Set `EQUIPE_BASE_URL` in the server environment for population to run. If it is empty, the sync is skipped.
 
 After the service is live, you can rerun the same imports through the API by pointing `SERVICE_URL` at the server:
 
 ```bash
 SERVICE_URL=http://82.96.43.103:8081 bash scripts/post_deploy_sync.sh
 ```
+
+Production should also run Celery Beat so the Equipe recent-meetings feed stays fresh:
+
+```bash
+celery -A app.tasks.celery_app beat --loglevel=info
+```
+
+Without the periodic sync, newly created Equipe meetings will not appear in `/api/v1/events` until `scripts/post_deploy_sync.sh` or `POST /api/v1/integrations/equipe/sync` is run.
 
 ## Running Tests
 
@@ -78,7 +86,7 @@ pytest tests/tasks/ -v
 # Start a Celery worker
 celery -A app.tasks.celery_app worker --loglevel=info
 
-# Start the Celery Beat scheduler (periodic TDB/Equipe sync)
+# Start the Celery Beat scheduler (periodic Equipe sync)
 celery -A app.tasks.celery_app beat --loglevel=info
 
 # Start both in one command (dev only)

@@ -23,10 +23,6 @@ celery_app.conf.update(
 )
 
 celery_app.conf.beat_schedule = {
-    "sync-tdb-hourly": {
-        "task": "gallopics.sync_tdb",
-        "schedule": crontab(minute=0),
-    },
     "sync-equipe-every-30-min": {
         "task": "gallopics.sync_equipe",
         "schedule": crontab(minute="*/30"),
