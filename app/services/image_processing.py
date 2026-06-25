@@ -72,13 +72,13 @@ def apply_watermark(
     draw.text(
         (brand_x, brand_y),
         BRAND_WATERMARK_TEXT,
-        fill=(255, 255, 255, 120),
+        fill=(255, 255, 255, 255),
         font=brand_font,
     )
     draw.text(
         (copyright_x, copyright_y),
         copyright_text,
-        fill=(255, 255, 255, 110),
+        fill=(255, 255, 255, 255),
         font=copyright_font,
     )
 
