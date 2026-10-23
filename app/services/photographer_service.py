@@ -18,7 +18,7 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.event import Event
-from app.models.photographer import Photo, Photographer, PhotographerEventBooking, PhotoTag
+from app.models.photographer import Photo, Photographer, PhotographerEventBooking, PhotoPurchase, PhotoTag
 from app.models.user import User
 from app.storage.base import StorageBackend
 
@@ -60,7 +60,8 @@ class PhotographerService:
                 select(Photographer).where(Photographer.slug == slug_or_id)
             )
             photographer = result.scalar_one_or_none()
-        if not photographer:
+        # Pending and rejected photographers have no public profile
+        if not photographer or photographer.status != PhotographerStatus.APPROVED:
             raise NotFoundError("Photographer profile not found")
         return photographer
 
@@ -375,6 +376,12 @@ class PhotographerService:
             raise NotFoundError("Photo not found")
         if photo.photographer_id != photographer_id:
             raise ForbiddenError("Not your photo")
+        # A sold photo must stay: buyers download its original, and the sale holds the photographer's share
+        sold = await self.db.scalar(
+            select(func.count()).select_from(PhotoPurchase).where(PhotoPurchase.photo_id == photo.id)
+        )
+        if sold:
+            raise ConflictError("This photo has been sold and can't be deleted")
 
         # Delete from storage
         for key in [photo.storage_key_original, photo.storage_key_preview, photo.storage_key_thumbnail]:
