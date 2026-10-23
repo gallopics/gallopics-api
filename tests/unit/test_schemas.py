@@ -63,7 +63,8 @@ class _FakeOrder:
     status = OrderStatus.PENDING
     amount = 5000
     currency = "SEK"
-    klarna_order_id = None
+    customer_email = None
+    stripe_payment_intent_id = None
     transactions = [_FakeTransaction()]
     created_at = datetime(2026, 1, 1)
     updated_at = datetime(2026, 1, 1)

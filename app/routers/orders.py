@@ -1,64 +1,21 @@
 import uuid
 
-import httpx
+import stripe
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.exceptions import ConflictError, ExternalServiceError, ForbiddenError
+from app.exceptions import ConflictError, ForbiddenError
 from app.integrations.clerk.auth import get_current_user, require_role
-from app.integrations.klarna.client import KlarnaClient
+from app.integrations.stripe.client import get_stripe_client, stripe_error
 from app.models.enums import OrderStatus, PaymentTransactionStatus, PaymentTransactionType, UserRole
 from app.models.user import User
 from app.schemas.order import OrderResponse
 from app.services.order_service import OrderService
+from app.services.payout_service import PayoutService
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
-
-_VALID_TRANSITIONS = {
-    "capture": {OrderStatus.AUTHORIZED},
-    "refund": {OrderStatus.CAPTURED},
-    "cancel": {OrderStatus.AUTHORIZED},
-}
-
-
-async def get_klarna_client():
-    settings = get_settings()
-    client = KlarnaClient(
-        api_url=settings.klarna_api_url,
-        username=settings.klarna_username,
-        password=settings.klarna_password,
-    )
-    try:
-        yield client
-    finally:
-        await client.close()
-
-
-def _klarna_error(exc: Exception, action: str) -> ExternalServiceError:
-    response = getattr(exc, "response", None)
-    if isinstance(exc, httpx.HTTPStatusError) and response is not None:
-        try:
-            body = response.json()
-        except ValueError:
-            body = response.text[:500]
-        return ExternalServiceError(
-            f"Klarna {action} failed with status {response.status_code}: {body}"
-        )
-    return ExternalServiceError(f"Klarna {action} failed: {exc}")
-
-
-def _capture_id_from_response(response: dict | None) -> str | None:
-    if not response:
-        return None
-    capture_id = response.get("capture_id")
-    if capture_id:
-        return str(capture_id)
-    location = response.get("location")
-    if isinstance(location, str):
-        return location.rstrip("/").split("/")[-1] or None
-    return None
 
 
 @router.get("/{order_id}", response_model=OrderResponse)
@@ -74,140 +31,46 @@ async def get_order(
     return OrderResponse.model_validate(order)
 
 
-@router.post("/{order_id}/capture", response_model=OrderResponse)
-async def capture(
-    order_id: uuid.UUID,
-    user: User = Depends(require_role(UserRole.ADMIN)),
-    db: AsyncSession = Depends(get_db),
-    klarna: KlarnaClient = Depends(get_klarna_client),
-):
-    service = OrderService(db)
-    order = await service.get_order(order_id)
-    if order.status not in _VALID_TRANSITIONS["capture"]:
-        raise ConflictError(f"Cannot capture order in {order.status} state")
-    payload = {
-        "captured_amount": order.amount,
-        "description": f"Capture for order {order.id}",
-    }
-    if order.klarna_order_id:
-        try:
-            capture_response = await klarna.capture(order.klarna_order_id, payload)
-        except Exception as exc:
-            await service.record_transaction(
-                order_id,
-                PaymentTransactionType.CAPTURE,
-                PaymentTransactionStatus.FAILED,
-                payload={
-                    "klarna_order_id": order.klarna_order_id,
-                    "klarna_capture_payload": payload,
-                    "error": str(exc),
-                },
-            )
-            raise _klarna_error(exc, "capture") from exc
-        capture_id = _capture_id_from_response(capture_response)
-        communication_status = "skipped"
-        communication_error = None
-        if capture_id:
-            try:
-                await klarna.trigger_customer_communication(order.klarna_order_id, capture_id)
-                communication_status = "triggered"
-            except Exception as exc:
-                communication_status = "failed"
-                communication_error = str(exc)
-    else:
-        capture_id = None
-        communication_status = None
-        communication_error = None
-    order = await service.update_order_status(order_id, OrderStatus.CAPTURED)
-    await service.record_transaction(
-        order_id,
-        PaymentTransactionType.CAPTURE,
-        PaymentTransactionStatus.SUCCESS,
-        payload={
-            "klarna_order_id": order.klarna_order_id,
-            "klarna_capture_id": capture_id,
-            "klarna_capture_payload": payload,
-            "klarna_customer_communication_status": communication_status,
-            "klarna_customer_communication_error": communication_error,
-        }
-        if order.klarna_order_id
-        else None,
-    )
-    order = await service.get_order(order_id)
-    return OrderResponse.model_validate(order)
-
-
 @router.post("/{order_id}/refund", response_model=OrderResponse)
 async def refund(
     order_id: uuid.UUID,
     user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
-    klarna: KlarnaClient = Depends(get_klarna_client),
+    stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
+    """Refund the whole order. Its downloads stop working (they need a captured order)."""
     service = OrderService(db)
     order = await service.get_order(order_id)
-    if order.status not in _VALID_TRANSITIONS["refund"]:
-        raise ConflictError(f"Cannot refund order in {order.status} state")
-    payload = {
-        "refunded_amount": order.amount,
-        "description": f"Refund for order {order.id}",
-    }
-    if order.klarna_order_id:
-        try:
-            await klarna.refund(order.klarna_order_id, payload)
-        except Exception as exc:
-            await service.record_transaction(
-                order_id,
-                PaymentTransactionType.REFUND,
-                PaymentTransactionStatus.FAILED,
-                payload={
-                    "klarna_order_id": order.klarna_order_id,
-                    "klarna_refund_payload": payload,
-                    "error": str(exc),
-                },
-            )
-            raise _klarna_error(exc, "refund") from exc
+    if order.status != OrderStatus.CAPTURED:
+        raise ConflictError(f"Cannot refund order in {order.status.value} state")
+    if not order.stripe_payment_intent_id:
+        raise ConflictError("Order has no Stripe payment to refund")
+
+    try:
+        stripe_refund = await stripe_client.v1.refunds.create_async(
+            {"payment_intent": order.stripe_payment_intent_id},
+            {"idempotency_key": f"refund-{order.id}"},
+        )
+    except stripe.StripeError as exc:
+        await service.record_transaction(
+            order_id,
+            PaymentTransactionType.REFUND,
+            PaymentTransactionStatus.FAILED,
+            payload={"stripe_payment_intent_id": order.stripe_payment_intent_id, "error": str(exc)},
+        )
+        raise stripe_error(exc, "refund") from exc
+
     order = await service.update_order_status(order_id, OrderStatus.REFUNDED)
+    # Take the photographers' shares back (or cancel ones not yet sent)
+    await PayoutService(db, stripe_client, get_settings()).reverse_order(order)
     await service.record_transaction(
         order_id,
         PaymentTransactionType.REFUND,
         PaymentTransactionStatus.SUCCESS,
-        payload={"klarna_order_id": order.klarna_order_id, "klarna_refund_payload": payload}
-        if order.klarna_order_id
-        else None,
-    )
-    order = await service.get_order(order_id)
-    return OrderResponse.model_validate(order)
-
-
-@router.post("/{order_id}/cancel", response_model=OrderResponse)
-async def cancel(
-    order_id: uuid.UUID,
-    user: User = Depends(require_role(UserRole.ADMIN)),
-    db: AsyncSession = Depends(get_db),
-    klarna: KlarnaClient = Depends(get_klarna_client),
-):
-    service = OrderService(db)
-    order = await service.get_order(order_id)
-    if order.status not in _VALID_TRANSITIONS["cancel"]:
-        raise ConflictError(f"Cannot cancel order in {order.status} state")
-    if order.klarna_order_id:
-        try:
-            await klarna.cancel(order.klarna_order_id)
-        except Exception as exc:
-            await service.record_transaction(
-                order_id,
-                PaymentTransactionType.CANCEL,
-                PaymentTransactionStatus.FAILED,
-                payload={"klarna_order_id": order.klarna_order_id, "error": str(exc)},
-            )
-            raise _klarna_error(exc, "cancel") from exc
-    order = await service.update_order_status(order_id, OrderStatus.CANCELLED)
-    await service.record_transaction(
-        order_id,
-        PaymentTransactionType.CANCEL,
-        PaymentTransactionStatus.SUCCESS,
-        payload={"klarna_order_id": order.klarna_order_id} if order.klarna_order_id else None,
+        payload={
+            "stripe_payment_intent_id": order.stripe_payment_intent_id,
+            "stripe_refund_id": stripe_refund.id,
+        },
     )
     order = await service.get_order(order_id)
     return OrderResponse.model_validate(order)

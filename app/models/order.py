@@ -17,6 +17,13 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(String, default="SEK")
     klarna_order_id: Mapped[Optional[str]] = mapped_column(String, unique=True)
     idempotency_key: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True)
+    customer_email: Mapped[Optional[str]] = mapped_column(String)
+    # Photos bought, priced by the server: photo_id, quality, name, total_amount, ...
+    line_items: Mapped[Optional[list[dict]]] = mapped_column(JSON)
+    stripe_checkout_session_id: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True)
+    stripe_payment_intent_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    # The buyer's charge; photographers' transfers are tied to it (source_transaction)
+    stripe_charge_id: Mapped[Optional[str]] = mapped_column(String)
 
     user: Mapped["User"] = relationship("User", back_populates="orders")
     transactions: Mapped[list["PaymentTransaction"]] = relationship(back_populates="order", cascade="all, delete-orphan")

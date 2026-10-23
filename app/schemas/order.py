@@ -25,7 +25,8 @@ class OrderResponse(BaseModel):
     status: OrderStatus
     amount: int
     currency: str
-    klarna_order_id: Optional[str] = None
+    customer_email: Optional[str] = None
+    stripe_payment_intent_id: Optional[str] = None
     transactions: list[PaymentTransactionResponse] = []
     created_at: datetime
     updated_at: datetime
