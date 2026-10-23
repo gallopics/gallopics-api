@@ -3,9 +3,10 @@ import uuid
 import httpx
 import respx
 
-from app.models.enums import OrderStatus
+from app.models.enums import OrderStatus, PhotographerStatus
 from app.models.event import Event
 from app.models.order import Order
+from app.models.photographer import Photographer
 from tests.factories import make_event
 
 
@@ -88,14 +89,8 @@ async def test_unmatch_success(async_client, admin_auth_headers, db_session):
 
 
 @respx.mock
-async def test_import_equipe_show(async_client, admin_auth_headers, monkeypatch):
-    async def fake_fetch_clerk_user_claims(clerk_user_id, secret_key):
-        return {"email": "admin@example.com"}
-
-    monkeypatch.setattr(
-        "app.integrations.clerk.auth._fetch_clerk_user_claims",
-        fake_fetch_clerk_user_claims,
-    )
+async def test_import_equipe_show(async_client, admin_auth_headers):
+    # The admin already has an email on file, so no Clerk API call is made
     respx.get("https://online.equipe.com/api/v1/meetings/79213/schedule").mock(
         return_value=httpx.Response(
             200,
@@ -122,3 +117,27 @@ async def test_import_equipe_show(async_client, admin_auth_headers, monkeypatch)
     assert data["name"] == "Ängelholms Ryttarförening"
     assert data["equipe_id"] == "91417"
     assert data["is_active_from_equipe"] is True
+
+
+async def test_reject_then_approve_photographer(async_client, admin_auth_headers, db_session, photographer_user):
+    """pending → suspended (rejected) → approved, and the status filter follows."""
+    photographer = Photographer(user_id=photographer_user.id, slug="review-me", display_name="Review Me")
+    db_session.add(photographer)
+    await db_session.flush()
+    assert photographer.status == PhotographerStatus.PENDING
+
+    url = f"/api/v1/admin/photographers/{photographer.id}"
+    rejected = await async_client.patch(url, json={"status": "suspended"}, headers=admin_auth_headers)
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "suspended"
+
+    listed = await async_client.get("/api/v1/admin/photographers?status=suspended", headers=admin_auth_headers)
+    assert [p["slug"] for p in listed.json()] == ["review-me"]
+    pending = await async_client.get("/api/v1/admin/photographers?status=pending", headers=admin_auth_headers)
+    assert pending.json() == []
+
+    approved = await async_client.patch(url, json={"status": "approved"}, headers=admin_auth_headers)
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+    listed = await async_client.get("/api/v1/admin/photographers?status=approved", headers=admin_auth_headers)
+    assert [p["slug"] for p in listed.json()] == ["review-me"]
