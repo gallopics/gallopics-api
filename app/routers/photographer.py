@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.config import get_settings
 from app.database import get_db
 from app.exceptions import BadRequestError, ForbiddenError, NotFoundError
-from app.integrations.clerk.auth import get_current_user, require_role
+from app.integrations.clerk.auth import get_current_user, require_approved_photographer, require_role
 from app.integrations.equipe.client import EquipeClient
 from app.models.enums import PhotoVisibility, UserRole
 from app.models.event import Event
@@ -159,7 +159,7 @@ async def list_my_event_bookings(
 @router.post("/bookings/{event_id}", response_model=EventResponse)
 async def book_event(
     event_id: uuid.UUID,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     service = PhotographerService(db)
@@ -171,7 +171,7 @@ async def book_event(
 @router.delete("/bookings/{event_id}", status_code=204)
 async def cancel_event_booking(
     event_id: uuid.UUID,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     service = PhotographerService(db)
@@ -192,7 +192,7 @@ async def get_highlights(
 @router.put("/highlights", response_model=HighlightsResponse)
 async def update_highlights(
     body: UpdateHighlightsRequest,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     service = PhotographerService(db)
@@ -214,7 +214,7 @@ async def get_public_photographer_highlights(
 @router.post("/uploads/sessions", response_model=UploadSessionResponse)
 async def create_upload_session(
     body: CreateUploadSessionRequest,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     storage = _get_storage()
@@ -244,7 +244,7 @@ async def upload_photos(
     class_name: Optional[str] = Form(None),
     taken_at: Optional[str] = Form(None),
     files: list[UploadFile] = File(...),
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     """Direct multipart upload endpoint for browser integration.
@@ -337,7 +337,7 @@ async def upload_photos(
 @router.post("/uploads/complete", response_model=list[PhotoResponse])
 async def complete_upload(
     body: CompleteUploadRequest,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     storage = _get_storage()
@@ -424,7 +424,7 @@ async def list_my_photos(
 async def update_photo(
     photo_id: uuid.UUID,
     body: UpdatePhotoRequest,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     storage = _get_storage()
@@ -505,7 +505,7 @@ async def get_photo_thumbnail(
 @router.delete("/photos/{photo_id}", status_code=204)
 async def delete_photo(
     photo_id: uuid.UUID,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     storage = _get_storage()

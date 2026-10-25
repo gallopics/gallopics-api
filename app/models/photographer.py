@@ -38,6 +38,13 @@ class Photographer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ARRAY(String).with_variant(JSON, "sqlite"),
         default=list,
     )
+    # Stripe Connect account that receives this photographer's earnings.
+    # The flags mirror Stripe and are refreshed from it (status check or account.updated webhook).
+    stripe_account_id: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True)
+    stripe_details_submitted: Mapped[bool] = mapped_column(Boolean, default=False)
+    stripe_transfers_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    stripe_payouts_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    stripe_requirements_due: Mapped[bool] = mapped_column(Boolean, default=False)
 
     user: Mapped["User"] = relationship("User", back_populates="photographer")
     photos: Mapped[list["Photo"]] = relationship(back_populates="photographer", cascade="all, delete-orphan")
@@ -131,6 +138,13 @@ class PhotoPurchase(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     quality: Mapped[str] = mapped_column(String, default="original")
     amount: Mapped[int] = mapped_column()
     currency: Mapped[str] = mapped_column(String, default="SEK")
+    # The photographer's share of `amount` and Gallopics' commission (öre), set at the sale
+    photographer_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("photographers.id"), index=True)
+    photographer_amount: Mapped[Optional[int]] = mapped_column()
+    platform_fee: Mapped[Optional[int]] = mapped_column()
+    # PayoutStatus: owed → transferred (→ reversed on refund) | cancelled | failed (retried)
+    payout_status: Mapped[Optional[str]] = mapped_column(String, index=True)
+    stripe_transfer_id: Mapped[Optional[str]] = mapped_column(String, index=True)
 
     order: Mapped["Order"] = relationship("Order")
     photo: Mapped["Photo"] = relationship(back_populates="purchases")

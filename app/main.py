@@ -20,6 +20,9 @@ from app.routers.integrations import router as integrations_router
 from app.routers.orders import router as orders_router
 from app.routers.photographer import public_router as public_photographer_router
 from app.routers.photographer import router as photographer_router
+from app.routers.photographer_sales import router as photographer_sales_router
+from app.routers.stripe_connect import router as stripe_connect_router
+from app.routers.stripe_connect import webhook_router as stripe_connect_webhook_router
 from app.routers.users import router as users_router
 
 
@@ -70,6 +73,9 @@ def create_app() -> FastAPI:
     app.include_router(orders_router)
     app.include_router(admin_router)
     app.include_router(gallery_router)
+    app.include_router(photographer_sales_router)
+    app.include_router(stripe_connect_router)
+    app.include_router(stripe_connect_webhook_router)
     app.include_router(photographer_router)
     app.include_router(public_photographer_router)
 

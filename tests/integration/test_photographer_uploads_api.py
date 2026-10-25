@@ -1,8 +1,9 @@
 import uuid
 
-from app.models.enums import PhotographerStatus
+from app.models.enums import OrderStatus, PhotographerStatus
 from app.models.event import Event
-from app.models.photographer import Photographer
+from app.models.order import Order
+from app.models.photographer import Photo, Photographer, PhotoPurchase
 from app.storage.local import LocalStorageBackend
 from tests.factories import make_event
 
@@ -273,3 +274,59 @@ async def test_upload_photos_rejects_invalid_event_id(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid event_id"
+
+
+async def _upload_one_photo(async_client, db_session, photographer_user, headers, monkeypatch, storage_dir):
+    import app.routers.photographer as photographer_router
+
+    await _seed_photographer(db_session, photographer_user)
+    event = await _seed_event(db_session, name="Delete Event")
+    storage = LocalStorageBackend(str(storage_dir))
+    monkeypatch.setattr(photographer_router, "_get_storage", lambda: storage)
+    response = await async_client.post(
+        "/api/v1/photographer/uploads",
+        headers=headers,
+        data={"event_id": str(event.id)},
+        files={"files": ("test.png", PNG_1X1, "image/png")},
+    )
+    assert response.status_code == 200
+    return response.json()[0]["id"]
+
+
+async def test_delete_unsold_photo(
+    async_client, db_session, photographer_user, photographer_auth_headers, monkeypatch, tmp_path
+):
+    photo_id = await _upload_one_photo(
+        async_client, db_session, photographer_user, photographer_auth_headers, monkeypatch, tmp_path / "uploads"
+    )
+
+    response = await async_client.delete(f"/api/v1/photographer/photos/{photo_id}", headers=photographer_auth_headers)
+
+    assert response.status_code == 204
+    assert await db_session.get(Photo, uuid.UUID(photo_id)) is None
+
+
+async def test_delete_sold_photo_is_refused(
+    async_client, db_session, photographer_user, photographer_auth_headers, monkeypatch, tmp_path
+):
+    storage_dir = tmp_path / "uploads"
+    photo_id = await _upload_one_photo(
+        async_client, db_session, photographer_user, photographer_auth_headers, monkeypatch, storage_dir
+    )
+    order = Order(user_id=photographer_user.id, status=OrderStatus.CAPTURED, amount=49_900, currency="SEK")
+    db_session.add(order)
+    await db_session.flush()
+    db_session.add(
+        PhotoPurchase(
+            order_id=order.id, user_id=photographer_user.id, photo_id=uuid.UUID(photo_id), quality="web", amount=49_900
+        )
+    )
+    await db_session.flush()
+    files_before = sorted(p.name for p in storage_dir.rglob("*") if p.is_file())
+
+    response = await async_client.delete(f"/api/v1/photographer/photos/{photo_id}", headers=photographer_auth_headers)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This photo has been sold and can't be deleted"
+    assert await db_session.get(Photo, uuid.UUID(photo_id)) is not None
+    assert sorted(p.name for p in storage_dir.rglob("*") if p.is_file()) == files_before
