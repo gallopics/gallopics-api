@@ -354,8 +354,8 @@ class PhotographerService:
 
         if "visibility" in data and data["visibility"] is not None:
             photo.visibility = data["visibility"]
-        if "price" in data and data["price"] is not None:
-            photo.price = data["price"]
+        if data.get("prices"):
+            self._set_prices(photo, data["prices"])
         if "tags" in data and data["tags"] is not None:
             # Replace all tags
             await self.db.execute(
@@ -368,6 +368,29 @@ class PhotographerService:
         await self.db.flush()
         await self.db.refresh(photo)
         return photo
+
+    async def update_photo_prices(
+        self, photo_ids: list[uuid.UUID], photographer_id: uuid.UUID, prices: dict
+    ) -> list[Photo]:
+        """The same prices for several photos; all of them must be this photographer's, or none change."""
+        unique_ids = set(photo_ids)
+        result = await self.db.execute(select(Photo).where(Photo.id.in_(unique_ids)))
+        photos = list(result.scalars().all())
+        if len(photos) != len(unique_ids):
+            raise NotFoundError("Photo not found")
+        if any(photo.photographer_id != photographer_id for photo in photos):
+            raise ForbiddenError("Not your photo")
+
+        for photo in photos:
+            self._set_prices(photo, prices)
+        await self.db.flush()
+        return photos
+
+    @staticmethod
+    def _set_prices(photo: Photo, prices: dict) -> None:
+        for tier_id, amount in prices.items():
+            if amount is not None:
+                setattr(photo, f"price_{tier_id}", amount)
 
     async def delete_photo(self, photo_id: uuid.UUID, photographer_id: uuid.UUID) -> None:
         result = await self.db.execute(select(Photo).where(Photo.id == photo_id))

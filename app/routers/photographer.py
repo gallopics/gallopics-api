@@ -27,6 +27,7 @@ from app.schemas.photographer import (
     PhotographerResponse,
     PhotoResponse,
     UpdateHighlightsRequest,
+    UpdatePhotoPricesRequest,
     UpdatePhotoRequest,
     UploadSessionResponse,
     UpsertPhotographerProfileRequest,
@@ -420,6 +421,21 @@ async def list_my_photos(
     )
 
 
+# Before /photos/{photo_id}, which would otherwise match "prices"
+@router.patch("/photos/prices", response_model=list[PhotoResponse])
+async def update_photo_prices(
+    body: UpdatePhotoPricesRequest,
+    user: User = Depends(require_approved_photographer),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    photos = await service.update_photo_prices(
+        body.photo_ids, photographer.id, body.prices.model_dump(exclude_unset=True)
+    )
+    return await _photo_responses(db, photos)
+
+
 @router.patch("/photos/{photo_id}", response_model=PhotoResponse)
 async def update_photo(
     photo_id: uuid.UUID,
@@ -431,7 +447,7 @@ async def update_photo(
     service = PhotographerService(db, storage)
     photographer = await service.get_photographer_for_user(user.id)
     photo = await service.update_photo(photo_id, photographer.id, body.model_dump(exclude_unset=True))
-    return PhotoResponse.model_validate(photo)
+    return (await _photo_responses(db, [photo]))[0]
 
 
 @router.get("/photos/{photo_id}/preview", include_in_schema=False)

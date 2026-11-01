@@ -86,7 +86,7 @@ class _FakePhoto:
     photographer_id = uuid.uuid4()
     photographer_display_name = None
     photographer_avatar_url = None
-    price = 10000
+    prices = {"web": 49900, "high": 99900, "commercial": 150000}
     currency = "SEK"
     status = PhotoStatus.READY
     visibility = PhotoVisibility.PUBLISHED
