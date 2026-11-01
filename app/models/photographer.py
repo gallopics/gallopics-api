@@ -123,6 +123,18 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     def prices(self) -> dict[str, int]:
         return {tier_id: getattr(self, f"price_{tier_id}") for tier_id in QUALITY_TIERS}
 
+    @property
+    def preview_url(self) -> str:
+        return f"/api/v1/photographer/photos/{self.id}/preview"
+
+    @property
+    def thumbnail_url(self) -> str:
+        return f"/api/v1/photographer/photos/{self.id}/thumbnail"
+
+    @property
+    def file_name(self) -> Optional[str]:
+        return self.storage_key_original.rsplit("/", 1)[-1] if self.storage_key_original else None
+
 
 class PhotoTag(Base):
     __tablename__ = "photo_tags"

@@ -113,7 +113,7 @@ async def process_photo(photo, storage: StorageBackend, db=None):
             if db:
                 await db.flush()
     except Exception as e:
-        # If processing fails, mark as ready anyway but use original as fallback
+        # If processing fails, mark as ready anyway; it has no public preview until reprocessed
         photo.status = PhotoStatus.READY
         if db:
             await db.flush()

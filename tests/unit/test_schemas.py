@@ -91,9 +91,8 @@ class _FakePhoto:
     status = PhotoStatus.READY
     visibility = PhotoVisibility.PUBLISHED
     tags = [_FakeTag()]
-    storage_key_original = None
-    storage_key_thumbnail = None
-    storage_key_preview = None
+    preview_url = "/api/v1/photographer/photos/fake/preview"
+    thumbnail_url = "/api/v1/photographer/photos/fake/thumbnail"
     taken_at = datetime(2026, 1, 1, 10, 0)
     equipe_start_id = "20834801"
     equipe_rider_id = "6404463"

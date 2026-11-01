@@ -41,9 +41,9 @@ class PhotoResponse(BaseModel):
     status: PhotoStatus
     visibility: PhotoVisibility
     tags: list[PhotoTagResponse] = []
-    storage_key_original: Optional[str] = None
-    storage_key_thumbnail: Optional[str] = None
-    storage_key_preview: Optional[str] = None
+    # Watermarked preview and 300px thumbnail; storage keys and originals are never exposed
+    preview_url: str
+    thumbnail_url: str
     taken_at: Optional[datetime] = None
     equipe_start_id: Optional[str] = None
     equipe_rider_id: Optional[str] = None
@@ -64,6 +64,12 @@ class PhotoResponse(BaseModel):
         else:
             value = value.astimezone(timezone.utc)
         return value.isoformat().replace("+00:00", "Z")
+
+
+class OwnPhotoResponse(PhotoResponse):
+    """A photo as its own photographer sees it in the workspace."""
+
+    file_name: Optional[str] = None
 
 
 class PhotographerResponse(BaseModel):

@@ -40,7 +40,8 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     setup_logging(settings.debug)
-    Path(settings.storage_local_path).mkdir(parents=True, exist_ok=True)
+    avatars_path = Path(settings.storage_local_path) / "avatars"
+    avatars_path.mkdir(parents=True, exist_ok=True)
 
     app = FastAPI(
         title=settings.app_name,
@@ -63,7 +64,8 @@ def create_app() -> FastAPI:
 
     app.add_exception_handler(GallopicsException, gallopics_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
-    app.mount("/uploads", StaticFiles(directory=settings.storage_local_path), name="uploads")
+    # Only avatars are public files; photos are served by endpoints that check access
+    app.mount("/uploads/avatars", StaticFiles(directory=avatars_path), name="avatars")
 
     app.include_router(health_router)
     app.include_router(events_router)
