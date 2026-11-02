@@ -16,6 +16,7 @@ from app.models.enums import (
     PhotoTagType,
     PhotoVisibility,
 )
+from app.services.pricing import QUALITY_TIERS
 
 if TYPE_CHECKING:
     from app.models.order import Order
@@ -87,7 +88,21 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     match_confidence: Mapped[Optional[str]] = mapped_column(String)
     match_delta_seconds: Mapped[Optional[int]] = mapped_column()
     match_source: Mapped[Optional[str]] = mapped_column(String)
+    # Unused: superseded by the per-tier prices below
     price: Mapped[int] = mapped_column()
+    # The photographer's price per quality tier, in öre (see app/services/pricing.py)
+    price_web: Mapped[int] = mapped_column(
+        default=QUALITY_TIERS["web"].default_amount,
+        server_default=str(QUALITY_TIERS["web"].default_amount),
+    )
+    price_high: Mapped[int] = mapped_column(
+        default=QUALITY_TIERS["high"].default_amount,
+        server_default=str(QUALITY_TIERS["high"].default_amount),
+    )
+    price_commercial: Mapped[int] = mapped_column(
+        default=QUALITY_TIERS["commercial"].default_amount,
+        server_default=str(QUALITY_TIERS["commercial"].default_amount),
+    )
     currency: Mapped[str] = mapped_column(String, default="SEK")
     status: Mapped[PhotoStatus] = mapped_column(default=PhotoStatus.PROCESSING)
     visibility: Mapped[PhotoVisibility] = mapped_column(default=PhotoVisibility.DRAFT)
@@ -103,6 +118,22 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     @property
     def photographer_avatar_url(self) -> Optional[str]:
         return self.photographer.avatar_url if self.photographer else None
+
+    @property
+    def prices(self) -> dict[str, int]:
+        return {tier_id: getattr(self, f"price_{tier_id}") for tier_id in QUALITY_TIERS}
+
+    @property
+    def preview_url(self) -> str:
+        return f"/api/v1/photographer/photos/{self.id}/preview"
+
+    @property
+    def thumbnail_url(self) -> str:
+        return f"/api/v1/photographer/photos/{self.id}/thumbnail"
+
+    @property
+    def file_name(self) -> Optional[str]:
+        return self.storage_key_original.rsplit("/", 1)[-1] if self.storage_key_original else None
 
 
 class PhotoTag(Base):

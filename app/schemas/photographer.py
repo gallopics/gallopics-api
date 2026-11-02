@@ -2,9 +2,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.models.enums import OrderStatus, PhotoStatus, PhotoTagType, PhotoVisibility
+from app.services.pricing import validate_price
 
 
 class PhotoTagResponse(BaseModel):
@@ -12,6 +13,14 @@ class PhotoTagResponse(BaseModel):
 
     type: PhotoTagType
     value: str
+
+
+class PhotoPrices(BaseModel):
+    """Price per quality tier, in öre."""
+
+    web: int
+    high: int
+    commercial: int
 
 
 class PhotoResponse(BaseModel):
@@ -27,14 +36,14 @@ class PhotoResponse(BaseModel):
     photographer_id: uuid.UUID
     photographer_display_name: Optional[str] = None
     photographer_avatar_url: Optional[str] = None
-    price: int
+    prices: PhotoPrices
     currency: str
     status: PhotoStatus
     visibility: PhotoVisibility
     tags: list[PhotoTagResponse] = []
-    storage_key_original: Optional[str] = None
-    storage_key_thumbnail: Optional[str] = None
-    storage_key_preview: Optional[str] = None
+    # Watermarked preview and 300px thumbnail; storage keys and originals are never exposed
+    preview_url: str
+    thumbnail_url: str
     taken_at: Optional[datetime] = None
     equipe_start_id: Optional[str] = None
     equipe_rider_id: Optional[str] = None
@@ -55,6 +64,12 @@ class PhotoResponse(BaseModel):
         else:
             value = value.astimezone(timezone.utc)
         return value.isoformat().replace("+00:00", "Z")
+
+
+class OwnPhotoResponse(PhotoResponse):
+    """A photo as its own photographer sees it in the workspace."""
+
+    file_name: Optional[str] = None
 
 
 class PhotographerResponse(BaseModel):
@@ -116,10 +131,30 @@ class CompleteUploadRequest(BaseModel):
     session_id: str
 
 
+class UpdatePhotoPricesFields(BaseModel):
+    """New prices in öre; tiers left out keep their price."""
+
+    web: Optional[int] = None
+    high: Optional[int] = None
+    commercial: Optional[int] = None
+
+    @field_validator("web", "high", "commercial")
+    @classmethod
+    def validate_amount(cls, value: Optional[int]) -> Optional[int]:
+        return None if value is None else validate_price(value)
+
+
 class UpdatePhotoRequest(BaseModel):
     visibility: Optional[PhotoVisibility] = None
-    price: Optional[int] = None
+    prices: Optional[UpdatePhotoPricesFields] = None
     tags: Optional[list[PhotoTagResponse]] = None
+
+
+class UpdatePhotoPricesRequest(BaseModel):
+    """The same prices for several photos at once."""
+
+    photo_ids: list[uuid.UUID] = Field(min_length=1, max_length=1000)
+    prices: UpdatePhotoPricesFields
 
 
 class HighlightsResponse(BaseModel):

@@ -17,7 +17,7 @@ from app.models.user import User
 from app.schemas.checkout import CheckoutItem
 from app.services.order_service import OrderService
 from app.services.payout_service import PayoutService
-from app.services.pricing import CURRENCY, get_quality_tier
+from app.services.pricing import CURRENCY, get_quality_tier, photo_price
 from app.services.transactional_email_service import TransactionalEmailService
 
 logger = structlog.get_logger()
@@ -212,6 +212,8 @@ class CheckoutService:
             if not photo or photo.status != PhotoStatus.READY or not photo.storage_key_original:
                 raise BadRequestError(f"Photo #{str(item.photo_id)[:8].upper()} is no longer available for purchase")
             tier = get_quality_tier(item.quality)
+            # The photo's current price; the order keeps it even if the photographer changes it later
+            amount = photo_price(photo, tier)
             name = f"Photo #{str(photo.id)[:8].upper()} – {tier.label}"
             line_items.append(
                 {
@@ -221,8 +223,8 @@ class CheckoutService:
                     "name": name,
                     "reference": str(photo.id),
                     "quantity": 1,
-                    "unit_price": tier.amount,
-                    "total_amount": tier.amount,
+                    "unit_price": amount,
+                    "total_amount": amount,
                 }
             )
         return line_items

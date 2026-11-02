@@ -165,6 +165,56 @@ async def test_create_session_prices_on_server(async_client, db_session, fake_st
     assert order.line_items[0]["photographer_id"] == str(photo.photographer_id)
 
 
+async def test_create_session_charges_the_photos_own_price(async_client, db_session, fake_stripe):
+    photo = await _make_photo(db_session)
+    photo.price_high = 129900
+    await db_session.flush()
+
+    # A price sent by the client is ignored
+    response = await async_client.post(
+        "/api/v1/checkout/sessions",
+        json={
+            "items": [{"photo_id": str(photo.id), "quality": "high", "price": 100, "unit_price": 100}],
+            "customer_email": "buyer@example.com",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    params, _ = fake_stripe.sessions.created[0]
+    assert params["line_items"][0]["price_data"]["unit_amount"] == 129900
+    order = await _order(db_session, response.json()["order_id"])
+    assert order.amount == 129900
+    assert order.line_items[0]["unit_price"] == 129900
+
+
+async def test_paid_order_keeps_its_price_and_share_after_a_price_change(
+    async_client, db_session, fake_stripe, monkeypatch
+):
+    monkeypatch.setenv("PLATFORM_COMMISSION_PERCENT", "25")
+    get_settings.cache_clear()
+    photo = await _make_photo(db_session)
+    photo.price_web = 60000
+    await db_session.flush()
+    data = await _start_checkout(async_client, photo, quality="web")
+
+    # The photographer changes the price before the payment completes
+    photo.price_web = 99900
+    await db_session.flush()
+    with patch(RECEIPT_PATH, new_callable=AsyncMock) as send_receipt:
+        send_receipt.return_value = {"status": "sent"}
+        response = await _send_webhook(
+            async_client, "checkout.session.completed", _session_object(data["session_id"], amount_total=60000)
+        )
+
+    assert response.status_code == 200
+    order = await _order(db_session, data["order_id"])
+    assert order.status == OrderStatus.CAPTURED
+    purchase = (await db_session.execute(select(PhotoPurchase))).scalar_one()
+    assert purchase.amount == 60000
+    assert (purchase.photographer_amount, purchase.platform_fee) == (45000, 15000)
+    assert purchase.photographer_id == photo.photographer_id
+
+
 async def test_create_session_merges_duplicate_items(async_client, db_session, fake_stripe):
     photo = await _make_photo(db_session)
     item = {"photo_id": str(photo.id), "quality": "web"}
