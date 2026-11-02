@@ -6,7 +6,7 @@ from typing import Optional
 import redis.asyncio as aioredis
 from fastapi import UploadFile
 from slugify import slugify
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,7 +18,14 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.event import Event
-from app.models.photographer import Photo, Photographer, PhotographerEventBooking, PhotoPurchase, PhotoTag
+from app.models.photographer import (
+    Photo,
+    PhotoFolder,
+    Photographer,
+    PhotographerEventBooking,
+    PhotoPurchase,
+    PhotoTag,
+)
 from app.models.user import User
 from app.storage.base import StorageBackend
 
@@ -391,6 +398,92 @@ class PhotographerService:
         for tier_id, amount in prices.items():
             if amount is not None:
                 setattr(photo, f"price_{tier_id}", amount)
+
+    async def list_folders(
+        self, photographer_id: uuid.UUID, event_id: Optional[uuid.UUID] = None
+    ) -> list[PhotoFolder]:
+        query = select(PhotoFolder).where(PhotoFolder.photographer_id == photographer_id)
+        if event_id:
+            query = query.where(PhotoFolder.event_id == event_id)
+        result = await self.db.execute(query)
+        # By name, the same way whatever the database collation
+        return sorted(result.scalars().all(), key=lambda folder: folder.name.lower())
+
+    async def create_folder(
+        self, photographer_id: uuid.UUID, event_id: uuid.UUID, name: str
+    ) -> PhotoFolder:
+        if not await self.db.get(Event, event_id):
+            raise NotFoundError("Event not found")
+        await self._ensure_folder_name_free(photographer_id, event_id, name)
+
+        folder = PhotoFolder(photographer_id=photographer_id, event_id=event_id, name=name)
+        self.db.add(folder)
+        await self.db.flush()
+        await self.db.refresh(folder)
+        return folder
+
+    async def rename_folder(
+        self, folder_id: uuid.UUID, photographer_id: uuid.UUID, name: str
+    ) -> PhotoFolder:
+        folder = await self._get_own_folder(folder_id, photographer_id)
+        await self._ensure_folder_name_free(photographer_id, folder.event_id, name, folder.id)
+
+        folder.name = name
+        await self.db.flush()
+        await self.db.refresh(folder)
+        return folder
+
+    async def delete_folder(self, folder_id: uuid.UUID, photographer_id: uuid.UUID) -> None:
+        folder = await self._get_own_folder(folder_id, photographer_id)
+        # Its photos stay, back in Uncategorised
+        await self.db.execute(
+            update(Photo).where(Photo.folder_id == folder.id).values(folder_id=None)
+        )
+        await self.db.delete(folder)
+        await self.db.flush()
+
+    async def move_photos_to_folder(
+        self,
+        photo_ids: list[uuid.UUID],
+        photographer_id: uuid.UUID,
+        folder_id: Optional[uuid.UUID],
+    ) -> list[Photo]:
+        """Photos into one of the photographer's folders (None = Uncategorised); all of them move, or none."""
+        folder = await self._get_own_folder(folder_id, photographer_id) if folder_id else None
+
+        unique_ids = set(photo_ids)
+        result = await self.db.execute(select(Photo).where(Photo.id.in_(unique_ids)))
+        photos = list(result.scalars().all())
+        if len(photos) != len(unique_ids):
+            raise NotFoundError("Photo not found")
+        if any(photo.photographer_id != photographer_id for photo in photos):
+            raise ForbiddenError("Not your photo")
+        if folder and any(photo.event_id != folder.event_id for photo in photos):
+            raise BadRequestError("Photos can only move to a folder of their own event")
+
+        for photo in photos:
+            photo.folder_id = folder.id if folder else None
+        await self.db.flush()
+        return photos
+
+    async def _get_own_folder(self, folder_id: uuid.UUID, photographer_id: uuid.UUID) -> PhotoFolder:
+        folder = await self.db.get(PhotoFolder, folder_id)
+        # Another photographer's folder looks the same as a missing one
+        if not folder or folder.photographer_id != photographer_id:
+            raise NotFoundError("Folder not found")
+        return folder
+
+    async def _ensure_folder_name_free(
+        self,
+        photographer_id: uuid.UUID,
+        event_id: uuid.UUID,
+        name: str,
+        folder_id: Optional[uuid.UUID] = None,
+    ) -> None:
+        # Compared here, not with SQL lower(), which skips Å/Ä/Ö under some database locales
+        others = await self.list_folders(photographer_id, event_id)
+        if any(f.id != folder_id and f.name.lower() == name.lower() for f in others):
+            raise ConflictError("A folder with this name already exists")
 
     async def delete_photo(self, photo_id: uuid.UUID, photographer_id: uuid.UUID) -> None:
         result = await self.db.execute(select(Photo).where(Photo.id == photo_id))

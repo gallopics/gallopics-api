@@ -67,6 +67,16 @@ class PhotographerEventBooking(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     photographer: Mapped["Photographer"] = relationship(back_populates="event_bookings")
 
 
+class PhotoFolder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A photographer's own folder for sorting their photos in one event; never shown publicly."""
+
+    __tablename__ = "photo_folders"
+
+    photographer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("photographers.id"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    name: Mapped[str] = mapped_column(String)
+
+
 class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "photos"
 
@@ -106,6 +116,10 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(String, default="SEK")
     status: Mapped[PhotoStatus] = mapped_column(default=PhotoStatus.PROCESSING)
     visibility: Mapped[PhotoVisibility] = mapped_column(default=PhotoVisibility.DRAFT)
+    # The photographer's own folder; empty means Uncategorised
+    folder_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("photo_folders.id", ondelete="SET NULL"), index=True
+    )
 
     photographer: Mapped["Photographer"] = relationship(back_populates="photos")
     tags: Mapped[list["PhotoTag"]] = relationship(back_populates="photo", cascade="all, delete-orphan")
