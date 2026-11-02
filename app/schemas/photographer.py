@@ -70,6 +70,8 @@ class OwnPhotoResponse(PhotoResponse):
     """A photo as its own photographer sees it in the workspace."""
 
     file_name: Optional[str] = None
+    # Private to the photographer, so not on PhotoResponse
+    folder_id: Optional[uuid.UUID] = None
 
 
 class PhotographerResponse(BaseModel):
@@ -155,6 +157,59 @@ class UpdatePhotoPricesRequest(BaseModel):
 
     photo_ids: list[uuid.UUID] = Field(min_length=1, max_length=1000)
     prices: UpdatePhotoPricesFields
+
+
+FOLDER_NAME_MAX_LENGTH = 60
+# Shown for photos without a folder, so no real folder may take the name
+UNCATEGORISED_FOLDER_NAME = "Uncategorised"
+
+
+def _validate_folder_name(value: str) -> str:
+    name = value.strip()
+    if not name:
+        raise ValueError("Folder name is required")
+    if len(name) > FOLDER_NAME_MAX_LENGTH:
+        raise ValueError(f"Folder name can be at most {FOLDER_NAME_MAX_LENGTH} characters")
+    if name.lower() == UNCATEGORISED_FOLDER_NAME.lower():
+        raise ValueError(f'"{UNCATEGORISED_FOLDER_NAME}" is reserved')
+    return name
+
+
+class PhotoFolderResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    event_id: uuid.UUID
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class CreatePhotoFolderRequest(BaseModel):
+    event_id: uuid.UUID
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _validate_folder_name(value)
+
+
+class RenamePhotoFolderRequest(BaseModel):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _validate_folder_name(value)
+
+
+class MovePhotosToFolderRequest(BaseModel):
+    """Several photos into one folder; folder_id null moves them back to Uncategorised."""
+
+    photo_ids: list[uuid.UUID] = Field(min_length=1, max_length=1000)
+    # Required, so a request that leaves it out can't empty folders by accident
+    folder_id: Optional[uuid.UUID]
 
 
 class HighlightsResponse(BaseModel):

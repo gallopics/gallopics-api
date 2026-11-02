@@ -22,10 +22,14 @@ from app.schemas import PaginatedResponse
 from app.schemas.event import EventResponse
 from app.schemas.photographer import (
     CompleteUploadRequest,
+    CreatePhotoFolderRequest,
     CreateUploadSessionRequest,
     HighlightsResponse,
+    MovePhotosToFolderRequest,
     OwnPhotoResponse,
+    PhotoFolderResponse,
     PhotographerResponse,
+    RenamePhotoFolderRequest,
     UpdateHighlightsRequest,
     UpdatePhotoPricesRequest,
     UpdatePhotoRequest,
@@ -436,6 +440,19 @@ async def update_photo_prices(
     return await _photo_responses(db, photos)
 
 
+# Also before /photos/{photo_id}
+@router.patch("/photos/folder", response_model=list[OwnPhotoResponse])
+async def move_photos_to_folder(
+    body: MovePhotosToFolderRequest,
+    user: User = Depends(require_approved_photographer),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    photos = await service.move_photos_to_folder(body.photo_ids, photographer.id, body.folder_id)
+    return await _photo_responses(db, photos)
+
+
 @router.patch("/photos/{photo_id}", response_model=OwnPhotoResponse)
 async def update_photo(
     photo_id: uuid.UUID,
@@ -531,3 +548,48 @@ async def delete_photo(
     service = PhotographerService(db, storage)
     photographer = await service.get_photographer_for_user(user.id)
     await service.delete_photo(photo_id, photographer.id)
+
+
+@router.get("/folders", response_model=list[PhotoFolderResponse])
+async def list_my_folders(
+    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    event_id: Optional[uuid.UUID] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    return await service.list_folders(photographer.id, event_id)
+
+
+@router.post("/folders", response_model=PhotoFolderResponse)
+async def create_folder(
+    body: CreatePhotoFolderRequest,
+    user: User = Depends(require_approved_photographer),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    return await service.create_folder(photographer.id, body.event_id, body.name)
+
+
+@router.patch("/folders/{folder_id}", response_model=PhotoFolderResponse)
+async def rename_folder(
+    folder_id: uuid.UUID,
+    body: RenamePhotoFolderRequest,
+    user: User = Depends(require_approved_photographer),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    return await service.rename_folder(folder_id, photographer.id, body.name)
+
+
+@router.delete("/folders/{folder_id}", status_code=204)
+async def delete_folder(
+    folder_id: uuid.UUID,
+    user: User = Depends(require_approved_photographer),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    await service.delete_folder(folder_id, photographer.id)
