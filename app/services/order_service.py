@@ -68,13 +68,6 @@ class OrderService:
         await self.db.refresh(order)
         return order
 
-    async def set_klarna_order_id(self, order_id: uuid.UUID, klarna_order_id: str) -> Order:
-        order = await self.get_order(order_id)
-        order.klarna_order_id = klarna_order_id
-        await self.db.flush()
-        await self.db.refresh(order)
-        return order
-
     async def record_transaction(
         self,
         order_id: uuid.UUID,

@@ -27,8 +27,23 @@ class Settings(BaseSettings):
     clerk_publishable_key: str = ""
     clerk_secret_key: str = ""
     clerk_jwks_url: str = ""
+    # Optional: Clerk's PEM public key (Dashboard → API keys) to verify tokens without network calls
+    clerk_jwt_key: str = ""
+    # Sites allowed in a token's `azp` claim (comma-separated); empty = CORS_ORIGINS + FRONTEND_BASE_URL
+    clerk_authorized_parties: str = ""
 
-    # Klarna
+    # Stripe
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    # Signing secret of the Connect webhook (events from photographers' accounts);
+    # empty = same as STRIPE_WEBHOOK_SECRET (e.g. one `stripe listen` locally)
+    stripe_connect_webhook_secret: str = ""
+    # Gallopics' cut of each photo sale, in percent
+    platform_commission_percent: int = 25
+    # Where Stripe Checkout sends the buyer back to
+    frontend_base_url: str = "http://localhost:5173"
+
+    # Klarna (no longer used; kept until KLARNA_* is removed from every .env)
     klarna_api_url: str = "https://api.playground.klarna.com"
     klarna_username: str = ""
     klarna_password: str = ""

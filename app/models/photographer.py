@@ -16,6 +16,7 @@ from app.models.enums import (
     PhotoTagType,
     PhotoVisibility,
 )
+from app.services.pricing import QUALITY_TIERS
 
 if TYPE_CHECKING:
     from app.models.order import Order
@@ -38,6 +39,13 @@ class Photographer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ARRAY(String).with_variant(JSON, "sqlite"),
         default=list,
     )
+    # Stripe Connect account that receives this photographer's earnings.
+    # The flags mirror Stripe and are refreshed from it (status check or account.updated webhook).
+    stripe_account_id: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True)
+    stripe_details_submitted: Mapped[bool] = mapped_column(Boolean, default=False)
+    stripe_transfers_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    stripe_payouts_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    stripe_requirements_due: Mapped[bool] = mapped_column(Boolean, default=False)
 
     user: Mapped["User"] = relationship("User", back_populates="photographer")
     photos: Mapped[list["Photo"]] = relationship(back_populates="photographer", cascade="all, delete-orphan")
@@ -80,7 +88,21 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     match_confidence: Mapped[Optional[str]] = mapped_column(String)
     match_delta_seconds: Mapped[Optional[int]] = mapped_column()
     match_source: Mapped[Optional[str]] = mapped_column(String)
+    # Unused: superseded by the per-tier prices below
     price: Mapped[int] = mapped_column()
+    # The photographer's price per quality tier, in öre (see app/services/pricing.py)
+    price_web: Mapped[int] = mapped_column(
+        default=QUALITY_TIERS["web"].default_amount,
+        server_default=str(QUALITY_TIERS["web"].default_amount),
+    )
+    price_high: Mapped[int] = mapped_column(
+        default=QUALITY_TIERS["high"].default_amount,
+        server_default=str(QUALITY_TIERS["high"].default_amount),
+    )
+    price_commercial: Mapped[int] = mapped_column(
+        default=QUALITY_TIERS["commercial"].default_amount,
+        server_default=str(QUALITY_TIERS["commercial"].default_amount),
+    )
     currency: Mapped[str] = mapped_column(String, default="SEK")
     status: Mapped[PhotoStatus] = mapped_column(default=PhotoStatus.PROCESSING)
     visibility: Mapped[PhotoVisibility] = mapped_column(default=PhotoVisibility.DRAFT)
@@ -96,6 +118,22 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     @property
     def photographer_avatar_url(self) -> Optional[str]:
         return self.photographer.avatar_url if self.photographer else None
+
+    @property
+    def prices(self) -> dict[str, int]:
+        return {tier_id: getattr(self, f"price_{tier_id}") for tier_id in QUALITY_TIERS}
+
+    @property
+    def preview_url(self) -> str:
+        return f"/api/v1/photographer/photos/{self.id}/preview"
+
+    @property
+    def thumbnail_url(self) -> str:
+        return f"/api/v1/photographer/photos/{self.id}/thumbnail"
+
+    @property
+    def file_name(self) -> Optional[str]:
+        return self.storage_key_original.rsplit("/", 1)[-1] if self.storage_key_original else None
 
 
 class PhotoTag(Base):
@@ -131,6 +169,13 @@ class PhotoPurchase(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     quality: Mapped[str] = mapped_column(String, default="original")
     amount: Mapped[int] = mapped_column()
     currency: Mapped[str] = mapped_column(String, default="SEK")
+    # The photographer's share of `amount` and Gallopics' commission (öre), set at the sale
+    photographer_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("photographers.id"), index=True)
+    photographer_amount: Mapped[Optional[int]] = mapped_column()
+    platform_fee: Mapped[Optional[int]] = mapped_column()
+    # PayoutStatus: owed → transferred (→ reversed on refund) | cancelled | failed (retried)
+    payout_status: Mapped[Optional[str]] = mapped_column(String, index=True)
+    stripe_transfer_id: Mapped[Optional[str]] = mapped_column(String, index=True)
 
     order: Mapped["Order"] = relationship("Order")
     photo: Mapped["Photo"] = relationship(back_populates="purchases")

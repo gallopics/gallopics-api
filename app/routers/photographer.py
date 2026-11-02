@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.config import get_settings
 from app.database import get_db
 from app.exceptions import BadRequestError, ForbiddenError, NotFoundError
-from app.integrations.clerk.auth import get_current_user, require_role
+from app.integrations.clerk.auth import get_current_user, require_approved_photographer, require_role
 from app.integrations.equipe.client import EquipeClient
 from app.models.enums import PhotoVisibility, UserRole
 from app.models.event import Event
@@ -24,9 +24,10 @@ from app.schemas.photographer import (
     CompleteUploadRequest,
     CreateUploadSessionRequest,
     HighlightsResponse,
+    OwnPhotoResponse,
     PhotographerResponse,
-    PhotoResponse,
     UpdateHighlightsRequest,
+    UpdatePhotoPricesRequest,
     UpdatePhotoRequest,
     UploadSessionResponse,
     UpsertPhotographerProfileRequest,
@@ -57,7 +58,7 @@ async def _validate_upload_file_size(file: UploadFile, max_size_bytes: int) -> N
     await file.seek(0)
 
 
-async def _photo_responses(db: AsyncSession, photos) -> list[PhotoResponse]:
+async def _photo_responses(db: AsyncSession, photos) -> list[OwnPhotoResponse]:
     photo_ids = [photo.id for photo in photos]
     result = await db.execute(
         select(Photo)
@@ -66,7 +67,7 @@ async def _photo_responses(db: AsyncSession, photos) -> list[PhotoResponse]:
     )
     photos_by_id = {photo.id: photo for photo in result.scalars().all()}
     return [
-        PhotoResponse.model_validate(photos_by_id.get(photo.id, photo))
+        OwnPhotoResponse.model_validate(photos_by_id.get(photo.id, photo))
         for photo in photos
     ]
 
@@ -159,7 +160,7 @@ async def list_my_event_bookings(
 @router.post("/bookings/{event_id}", response_model=EventResponse)
 async def book_event(
     event_id: uuid.UUID,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     service = PhotographerService(db)
@@ -171,7 +172,7 @@ async def book_event(
 @router.delete("/bookings/{event_id}", status_code=204)
 async def cancel_event_booking(
     event_id: uuid.UUID,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     service = PhotographerService(db)
@@ -192,7 +193,7 @@ async def get_highlights(
 @router.put("/highlights", response_model=HighlightsResponse)
 async def update_highlights(
     body: UpdateHighlightsRequest,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     service = PhotographerService(db)
@@ -214,7 +215,7 @@ async def get_public_photographer_highlights(
 @router.post("/uploads/sessions", response_model=UploadSessionResponse)
 async def create_upload_session(
     body: CreateUploadSessionRequest,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     storage = _get_storage()
@@ -234,7 +235,7 @@ async def create_upload_session(
     return UploadSessionResponse(**result)
 
 
-@router.post("/uploads", response_model=list[PhotoResponse])
+@router.post("/uploads", response_model=list[OwnPhotoResponse])
 async def upload_photos(
     event_id: str = Form(...),
     class_id: Optional[str] = Form(None),
@@ -244,7 +245,7 @@ async def upload_photos(
     class_name: Optional[str] = Form(None),
     taken_at: Optional[str] = Form(None),
     files: list[UploadFile] = File(...),
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     """Direct multipart upload endpoint for browser integration.
@@ -253,7 +254,7 @@ async def upload_photos(
     - event_id: the event UUID (string)
     - files: one or more image files
 
-    Returns PhotoResponse objects for each uploaded photo.
+    Returns OwnPhotoResponse objects for each uploaded photo.
     """
     import uuid as _uuid
 
@@ -334,10 +335,10 @@ async def upload_photos(
     return await _photo_responses(db, photos)
 
 
-@router.post("/uploads/complete", response_model=list[PhotoResponse])
+@router.post("/uploads/complete", response_model=list[OwnPhotoResponse])
 async def complete_upload(
     body: CompleteUploadRequest,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     storage = _get_storage()
@@ -396,7 +397,7 @@ async def complete_upload(
     return await _photo_responses(db, photos)
 
 
-@router.get("/photos", response_model=PaginatedResponse[PhotoResponse])
+@router.get("/photos", response_model=PaginatedResponse[OwnPhotoResponse])
 async def list_my_photos(
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
     event_id: Optional[uuid.UUID] = None,
@@ -413,25 +414,40 @@ async def list_my_photos(
         photographer.id, event_id, class_id, visibility, page, page_size
     )
     return PaginatedResponse(
-        items=[PhotoResponse.model_validate(p) for p in items],
+        items=[OwnPhotoResponse.model_validate(p) for p in items],
         total=total,
         page=page,
         page_size=page_size,
     )
 
 
-@router.patch("/photos/{photo_id}", response_model=PhotoResponse)
+# Before /photos/{photo_id}, which would otherwise match "prices"
+@router.patch("/photos/prices", response_model=list[OwnPhotoResponse])
+async def update_photo_prices(
+    body: UpdatePhotoPricesRequest,
+    user: User = Depends(require_approved_photographer),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PhotographerService(db)
+    photographer = await service.get_photographer_for_user(user.id)
+    photos = await service.update_photo_prices(
+        body.photo_ids, photographer.id, body.prices.model_dump(exclude_unset=True)
+    )
+    return await _photo_responses(db, photos)
+
+
+@router.patch("/photos/{photo_id}", response_model=OwnPhotoResponse)
 async def update_photo(
     photo_id: uuid.UUID,
     body: UpdatePhotoRequest,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     storage = _get_storage()
     service = PhotographerService(db, storage)
     photographer = await service.get_photographer_for_user(user.id)
     photo = await service.update_photo(photo_id, photographer.id, body.model_dump(exclude_unset=True))
-    return PhotoResponse.model_validate(photo)
+    return (await _photo_responses(db, [photo]))[0]
 
 
 @router.get("/photos/{photo_id}/preview", include_in_schema=False)
@@ -439,7 +455,7 @@ async def get_photo_preview(
     photo_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Serve a photo preview/thumbnail from storage."""
+    """Serve a photo's watermarked preview from storage."""
     from io import BytesIO
 
     from fastapi.responses import StreamingResponse
@@ -449,7 +465,10 @@ async def get_photo_preview(
     if not photo:
         raise NotFoundError("Photo not found")
 
-    storage_key = photo.storage_key_preview or photo.storage_key_original
+    # Public route: only the watermarked preview, never the original
+    storage_key = photo.storage_key_preview
+    if not storage_key or storage_key == photo.storage_key_original:
+        raise NotFoundError("Preview not available")
     storage = _get_storage()
 
     # Download from storage
@@ -482,10 +501,10 @@ async def get_photo_thumbnail(
     if not photo:
         raise NotFoundError("Photo not found")
 
-    storage_key = photo.storage_key_thumbnail
-    if not storage_key:
-        # Fallback to original if no thumbnail exists
-        storage_key = photo.storage_key_original
+    # Public route: falls back to the watermarked preview, never the original
+    storage_key = photo.storage_key_thumbnail or photo.storage_key_preview
+    if not storage_key or storage_key == photo.storage_key_original:
+        raise NotFoundError("Thumbnail not available")
     storage = _get_storage()
 
     import tempfile
@@ -505,7 +524,7 @@ async def get_photo_thumbnail(
 @router.delete("/photos/{photo_id}", status_code=204)
 async def delete_photo(
     photo_id: uuid.UUID,
-    user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
+    user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db),
 ):
     storage = _get_storage()

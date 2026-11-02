@@ -63,7 +63,8 @@ class _FakeOrder:
     status = OrderStatus.PENDING
     amount = 5000
     currency = "SEK"
-    klarna_order_id = None
+    customer_email = None
+    stripe_payment_intent_id = None
     transactions = [_FakeTransaction()]
     created_at = datetime(2026, 1, 1)
     updated_at = datetime(2026, 1, 1)
@@ -85,14 +86,13 @@ class _FakePhoto:
     photographer_id = uuid.uuid4()
     photographer_display_name = None
     photographer_avatar_url = None
-    price = 10000
+    prices = {"web": 49900, "high": 99900, "commercial": 150000}
     currency = "SEK"
     status = PhotoStatus.READY
     visibility = PhotoVisibility.PUBLISHED
     tags = [_FakeTag()]
-    storage_key_original = None
-    storage_key_thumbnail = None
-    storage_key_preview = None
+    preview_url = "/api/v1/photographer/photos/fake/preview"
+    thumbnail_url = "/api/v1/photographer/photos/fake/thumbnail"
     taken_at = datetime(2026, 1, 1, 10, 0)
     equipe_start_id = "20834801"
     equipe_rider_id = "6404463"

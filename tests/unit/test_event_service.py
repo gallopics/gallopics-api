@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -188,7 +188,12 @@ async def test_sync_from_equipe_skips_non_swedish_meetings(service):
 
 async def test_sync_from_equipe_deactivates_stale_events_without_photos(service, db_session):
     stale = await service.create_event(
-        make_event(name="Old Equipe Event", equipe_id="old-1", country="SWE")
+        make_event(
+            name="Old Equipe Event",
+            equipe_id="old-1",
+            country="SWE",
+            equipe_last_seen_at=datetime.utcnow(),
+        )
     )
 
     class FakeEquipeClient:
@@ -268,6 +273,58 @@ async def test_sync_from_equipe_keeps_stale_events_with_uploaded_photos(service,
     items, total = await service.list_events(EventFilters())
     assert total == 2
     assert {event.equipe_id for event in items} == {"old-with-photo", "current-2"}
+
+
+async def test_import_equipe_meeting_creates_manual_active_event(service):
+    class FakeEquipeClient:
+        async def get_meeting_schedule(self, meeting_id):
+            assert meeting_id == "79213"
+            return {
+                "id": 79213,
+                "display_name": "Ängelholms Ryttarförening",
+                "start_on": "2026-05-16",
+                "end_on": "2026-05-17",
+                "equipe_id": 91417,
+                "tdb_id": "82848",
+                "venue_country": "SWE",
+                "discipline": "show_jumping",
+            }
+
+    event, is_new = await service.import_equipe_meeting(FakeEquipeClient(), "79213")
+
+    assert is_new is True
+    assert event.equipe_id == "91417"
+    assert event.name == "Ängelholms Ryttarförening"
+    assert event.is_active_from_equipe is True
+    assert event.equipe_last_seen_at is None
+
+
+async def test_sync_from_equipe_keeps_manual_imports_not_in_recent(service, db_session):
+    manual = await service.create_event(
+        make_event(
+            name="Manual Equipe Event",
+            equipe_id="manual-1",
+            country="SWE",
+            equipe_last_seen_at=None,
+        )
+    )
+
+    class FakeEquipeClient:
+        async def get_meetings(self, params=None):
+            return [
+                {
+                    "id": "current-3",
+                    "display_name": "Current Equipe Event",
+                    "start_on": "2026-06-10",
+                    "venue_country": "SWE",
+                }
+            ]
+
+    result = await service.sync_from_equipe(FakeEquipeClient())
+    await db_session.refresh(manual)
+
+    assert result["deactivated"] == 0
+    assert manual.is_active_from_equipe is True
 
 
 async def test_update_event(service):

@@ -11,6 +11,7 @@ from app.integrations.equipe.client import EquipeClient
 from app.models.enums import EventStatus
 from app.schemas import PaginatedResponse
 from app.schemas.event import (
+    EventClassSectionStartResponse,
     EventFilters,
     EventResponse,
     EventResultResponse,
@@ -19,6 +20,36 @@ from app.schemas.event import (
 from app.services.event_service import EventService
 
 router = APIRouter(prefix="/api/v1/events", tags=["events"])
+
+
+@router.get(
+    "/class-sections/{class_section_id}/starts",
+    response_model=list[EventClassSectionStartResponse],
+)
+async def get_event_class_section_starts(class_section_id: str):
+    settings = get_settings()
+    equipe_client = EquipeClient(settings.equipe_base_url)
+    try:
+        raw_class_section = await equipe_client.get_class_section(class_section_id)
+    finally:
+        await equipe_client.close()
+
+    return [
+        EventClassSectionStartResponse(
+            id=str(start.get("id") or start.get("equipe_id") or ""),
+            rider_id=(
+                str(start["rider_id"]) if start.get("rider_id") is not None else None
+            ),
+            horse_id=(
+                str(start["horse_id"]) if start.get("horse_id") is not None else None
+            ),
+            rider_name=start.get("rider_name"),
+            horse_name=start.get("horse_name"),
+            start_no=str(start["start_no"]) if start.get("start_no") is not None else None,
+            result_at=start.get("result_at"),
+        )
+        for start in raw_class_section.get("starts") or []
+    ]
 
 
 @router.get("", response_model=PaginatedResponse[EventResponse])

@@ -1,5 +1,10 @@
 from datetime import datetime, timezone
 
+from sqlalchemy import select
+
+from app.models.enums import PhotoTagType
+from app.models.event import Event
+from app.models.photographer import Photo, PhotoTag
 from app.services.photo_matching_service import PhotoMatchingService
 
 
@@ -36,3 +41,130 @@ def test_find_nearest_start_returns_none_outside_window(db_session):
     )
 
     assert match is None
+
+
+def test_find_nearest_start_estimates_show_jumping_start_times(db_session):
+    service = PhotoMatchingService(db_session, equipe_client=None)
+    match = service.find_nearest_start(
+        datetime(2026, 5, 17, 12, 15, 0, tzinfo=timezone.utc),
+        {
+            "sec_per_start": 128,
+            "starts": [
+                {
+                    "id": 20741323,
+                    "position": 1001,
+                    "start_no": "2",
+                    "result_at": "2026-05-17T14:14:49+02:00",
+                    "rider_name": "Katarina Langvik Carstensen",
+                    "horse_name": "My Dark Favorite (SWB)",
+                    "results": [{"time": 131.0}],
+                },
+                {
+                    "id": 20686567,
+                    "position": 1002,
+                    "start_no": "3",
+                    "result_at": "2026-05-17T14:16:42+02:00",
+                    "rider_name": "Amanda Helgemo",
+                    "horse_name": "Cortina D'Ampezzo (SWB)",
+                    "results": [{"status": "eliminated"}],
+                },
+            ],
+        },
+    )
+
+    assert match is not None
+    assert match.start["id"] == 20686567
+    assert match.delta_seconds == 14
+    assert match.confidence == "high"
+
+
+async def test_match_photo_resolves_meeting_class_id_to_nearest_section(db_session):
+    class FakeEquipeClient:
+        async def get_meeting_schedule(self, meeting_id):
+            assert meeting_id == "79213"
+            return {
+                "meeting_classes": [
+                    {
+                        "id": 1208737,
+                        "equipe_id": 11,
+                        "class_no": "11",
+                        "class_sections": [
+                            {"id": 1236758},
+                            {"id": 1235201},
+                        ],
+                    }
+                ]
+            }
+
+        async def get_class_section(self, class_section_id):
+            if class_section_id == "1236758":
+                return {
+                    "sec_per_start": 135,
+                    "starts": [
+                        {
+                            "id": 1,
+                            "start_at": None,
+                            "result_at": "2026-05-17T12:17:30+02:00",
+                            "rider_id": 6359431,
+                            "horse_id": 7739821,
+                            "start_no": "1",
+                            "rider_name": "Amanda Helgemo",
+                            "horse_name": "Cortina D'Ampezzo",
+                        }
+                    ],
+                }
+            return {
+                "sec_per_start": 134,
+                "starts": [
+                    {
+                        "id": 2,
+                        "start_at": "2026-05-17T12:28:00+02:00",
+                        "rider_id": 1,
+                        "horse_id": 2,
+                        "start_no": "2",
+                        "rider_name": "Other Rider",
+                        "horse_name": "Other Horse",
+                    }
+                ],
+            }
+
+    event = Event(
+        name="Ängelholms Ryttarförening",
+        slug="angelholms",
+        start_date=datetime(2026, 5, 16).date(),
+        country="SWE",
+        raw_equipe_payload={"id": 79213},
+    )
+    db_session.add(event)
+    await db_session.flush()
+
+    photo = Photo(
+        event_id=event.id,
+        photographer_id=event.id,
+        storage_key_original="originals/test.jpg",
+        price=10000,
+        equipe_class_section_id="1208737",
+        taken_at=datetime(2026, 5, 17, 10, 15, 40, tzinfo=timezone.utc),
+    )
+    db_session.add(photo)
+    await db_session.flush()
+
+    match = await PhotoMatchingService(db_session, FakeEquipeClient()).match_photo(
+        photo,
+        event,
+    )
+
+    assert match is not None
+    assert photo.equipe_class_section_id == "1236758"
+    assert photo.equipe_rider_id == "6359431"
+    assert photo.equipe_horse_id == "7739821"
+    assert photo.match_confidence == "medium"
+
+    tags = {
+        tag.type: tag.value
+        for tag in (
+            await db_session.scalars(select(PhotoTag).where(PhotoTag.photo_id == photo.id))
+        ).all()
+    }
+    assert tags[PhotoTagType.RIDER] == "Amanda Helgemo"
+    assert tags[PhotoTagType.HORSE] == "Cortina D'Ampezzo"

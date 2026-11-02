@@ -29,6 +29,7 @@ dependencies = [
     "PyJWT[crypto]",
     "Pillow",
     "boto3",
+    "stripe>=16",
 ]
 
 [project.optional-dependencies]

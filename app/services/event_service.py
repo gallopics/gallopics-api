@@ -193,6 +193,23 @@ class EventService:
             class_no = raw_class.get("class_no")
             name = raw_class["name"]
             display_name = f"{class_no} · {name}" if class_no else name
+            class_sections = [
+                {
+                    "id": str(section["id"]),
+                    "meeting_class_id": (
+                        str(section["meeting_class_id"])
+                        if section.get("meeting_class_id") is not None
+                        else str(raw_class["id"])
+                    ),
+                    "categories": section.get("categories") or [],
+                    "sec_per_start": section.get("sec_per_start"),
+                    "finish_at": section.get("finish_at"),
+                    "state": section.get("state"),
+                    "total": section.get("total"),
+                }
+                for section in raw_class.get("class_sections") or []
+                if section.get("id") is not None
+            ]
             class_item = {
                 "id": str(raw_class["id"]),
                 "name": display_name,
@@ -202,6 +219,7 @@ class EventService:
                 "arena": raw_class.get("arena") or "Main Arena",
                 "discipline": raw_class.get("discipline") or raw_schedule.get("discipline"),
                 "position": raw_class.get("position") or 0,
+                "class_sections": class_sections,
             }
             classes_by_date.setdefault(class_date, []).append(class_item)
 
@@ -231,6 +249,22 @@ class EventService:
 
         raw_schedule = await equipe_client.get_meeting_schedule(equipe_meeting_id)
         return self.normalize_equipe_schedule(event, raw_schedule)
+
+    async def import_equipe_meeting(
+        self,
+        equipe_client: EquipeClient,
+        meeting_id: str,
+    ) -> tuple[Event, bool]:
+        raw = await equipe_client.get_meeting_schedule(meeting_id)
+        normalized = normalize_equipe_meeting(raw)
+        equipe_id = normalized.pop("equipe_id", None)
+        if not equipe_id or not normalized.get("start_date"):
+            raise NotFoundError("Equipe meeting not found")
+
+        normalized["is_active_from_equipe"] = True
+        # Manual imports may be outside /meetings/recent; keep them active across recent-feed syncs.
+        normalized["equipe_last_seen_at"] = None
+        return await self.upsert_event_by_equipe_id(str(equipe_id), normalized)
 
     async def upsert_event_results(
         self, event_id: uuid.UUID, results: list[dict]
@@ -336,6 +370,7 @@ class EventService:
         result = await self.db.execute(
             update(Event)
             .where(Event.equipe_id.is_not(None))
+            .where(Event.equipe_last_seen_at.is_not(None))
             .where(Event.is_active_from_equipe.is_(True))
             .where(Event.equipe_id.not_in(seen_equipe_ids))
             .where(~has_photos)

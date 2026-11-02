@@ -20,6 +20,9 @@ from app.routers.integrations import router as integrations_router
 from app.routers.orders import router as orders_router
 from app.routers.photographer import public_router as public_photographer_router
 from app.routers.photographer import router as photographer_router
+from app.routers.photographer_sales import router as photographer_sales_router
+from app.routers.stripe_connect import router as stripe_connect_router
+from app.routers.stripe_connect import webhook_router as stripe_connect_webhook_router
 from app.routers.users import router as users_router
 
 
@@ -37,7 +40,8 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     setup_logging(settings.debug)
-    Path(settings.storage_local_path).mkdir(parents=True, exist_ok=True)
+    avatars_path = Path(settings.storage_local_path) / "avatars"
+    avatars_path.mkdir(parents=True, exist_ok=True)
 
     app = FastAPI(
         title=settings.app_name,
@@ -60,7 +64,8 @@ def create_app() -> FastAPI:
 
     app.add_exception_handler(GallopicsException, gallopics_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
-    app.mount("/uploads", StaticFiles(directory=settings.storage_local_path), name="uploads")
+    # Only avatars are public files; photos are served by endpoints that check access
+    app.mount("/uploads/avatars", StaticFiles(directory=avatars_path), name="avatars")
 
     app.include_router(health_router)
     app.include_router(events_router)
@@ -70,6 +75,9 @@ def create_app() -> FastAPI:
     app.include_router(orders_router)
     app.include_router(admin_router)
     app.include_router(gallery_router)
+    app.include_router(photographer_sales_router)
+    app.include_router(stripe_connect_router)
+    app.include_router(stripe_connect_webhook_router)
     app.include_router(photographer_router)
     app.include_router(public_photographer_router)
 

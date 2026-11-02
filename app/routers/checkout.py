@@ -1,45 +1,34 @@
 import uuid
-from copy import deepcopy
-from typing import Any
+from typing import Optional
 
-import httpx
+import stripe
+import structlog
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.exceptions import BadRequestError, ConflictError, ExternalServiceError
-from app.integrations.clerk.auth import ClerkAuth
-from app.integrations.klarna.client import KlarnaClient
-from app.models.enums import OrderStatus, PaymentTransactionStatus, PaymentTransactionType
+from app.exceptions import BadRequestError, NotFoundError
+from app.integrations.clerk.auth import get_clerk_auth
+from app.integrations.stripe.client import get_stripe_client
+from app.models.enums import OrderStatus
+from app.models.order import Order
 from app.models.user import User
 from app.schemas.checkout import (
-    AuthorizeCheckoutRequest,
+    CheckoutOrderItem,
+    CheckoutOrderResponse,
     CheckoutSessionResponse,
     CreateCheckoutSessionRequest,
 )
-from app.schemas.order import OrderResponse
-from app.services.order_service import OrderService
-from app.services.transactional_email_service import TransactionalEmailService
+from app.services.checkout_service import CheckoutService, photo_urls
 
 router = APIRouter(prefix="/api/v1/checkout", tags=["checkout"])
+logger = structlog.get_logger()
 
-
-async def get_klarna_client():
-    settings = get_settings()
-    if not settings.klarna_username or not settings.klarna_password:
-        raise ExternalServiceError("Klarna credentials are not configured")
-
-    client = KlarnaClient(
-        api_url=settings.klarna_api_url,
-        username=settings.klarna_username,
-        password=settings.klarna_password,
-    )
-    try:
-        yield client
-    finally:
-        await client.close()
+# Checkout Session events that settle an order
+_PAID_EVENTS = {"checkout.session.completed", "checkout.session.async_payment_succeeded"}
+_UNPAID_EVENTS = {"checkout.session.expired", "checkout.session.async_payment_failed"}
 
 
 async def _get_or_create_user(
@@ -48,8 +37,7 @@ async def _get_or_create_user(
 ) -> User:
     if auth and auth.startswith("Bearer "):
         try:
-            settings = get_settings()
-            claims = ClerkAuth(settings.clerk_jwks_url).validate_token(auth[7:])
+            claims = get_clerk_auth().validate_token(auth[7:])
             from app.services.user_service import UserService
 
             user_service = UserService(db)
@@ -75,110 +63,30 @@ async def _get_or_create_user(
     return guest
 
 
-def _klarna_error(exc: Exception, action: str) -> ExternalServiceError:
-    response = getattr(exc, "response", None)
-    if isinstance(exc, httpx.HTTPStatusError) and response is not None:
-        try:
-            body = response.json()
-        except ValueError:
-            body = response.text[:500]
-        return ExternalServiceError(
-            f"Klarna {action} failed with status {response.status_code}: {body}"
+def _checkout_service(request: Request, db: AsyncSession, stripe_client: Optional[stripe.StripeClient]):
+    return CheckoutService(db, stripe_client, get_settings(), public_base_url=str(request.base_url))
+
+
+def _order_response(order: Order, service: CheckoutService) -> CheckoutOrderResponse:
+    items = [
+        CheckoutOrderItem(
+            photo_id=item["photo_id"],
+            quality=item["quality"],
+            name=item["name"],
+            amount=item["total_amount"],
+            thumbnail_url=photo_urls(service.public_base_url, item["photo_id"], order.id)["thumbnail_url"],
         )
-    return ExternalServiceError(f"Klarna {action} failed: {exc}")
-
-
-def _build_klarna_session_payload(body: CreateCheckoutSessionRequest) -> dict[str, Any]:
-    order_amount = sum(item.total_amount for item in body.line_items)
-    order_tax_amount = sum(item.total_tax_amount for item in body.line_items)
-    payload = {
-        "acquiring_channel": "ECOMMERCE",
-        "intent": "buy",
-        "purchase_country": body.purchase_country.upper(),
-        "purchase_currency": body.purchase_currency.upper(),
-        "locale": body.locale,
-        "order_amount": order_amount,
-        "order_tax_amount": order_tax_amount,
-        "order_lines": [
-            {
-                "type": item.type,
-                "reference": item.reference or f"item_{index + 1}",
-                "name": item.name,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "tax_rate": item.tax_rate,
-                "total_amount": item.total_amount,
-                "total_tax_amount": item.total_tax_amount,
-                "photo_id": str(item.photo_id) if item.photo_id else None,
-                "quality": item.quality,
-            }
-            for index, item in enumerate(body.line_items)
-        ],
-    }
-    if body.customer_email:
-        payload["billing_address"] = {"email": body.customer_email}
-    return payload
-
-
-def _find_session_payload(order) -> dict[str, Any] | None:
-    for transaction in sorted(order.transactions, key=lambda txn: txn.created_at, reverse=True):
-        payload = transaction.payload or {}
-        if payload.get("klarna_session_payload") and payload.get("klarna_session_id"):
-            return payload
-    return None
-
-
-def _capture_payload(order) -> dict[str, Any]:
-    return {
-        "captured_amount": order.amount,
-        "description": f"Capture for order {order.id}",
-    }
-
-
-def _capture_id_from_response(response: dict[str, Any] | None) -> str | None:
-    if not response:
-        return None
-    capture_id = response.get("capture_id")
-    if capture_id:
-        return str(capture_id)
-    location = response.get("location")
-    if isinstance(location, str):
-        return location.rstrip("/").split("/")[-1] or None
-    return None
-
-
-def _order_lines_with_download_urls(
-    request: Request,
-    order_id: uuid.UUID,
-    order_lines: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    settings = get_settings()
-    public_base_url = settings.api_public_base_url.rstrip("/")
-    enriched_lines = []
-    for item in order_lines:
-        enriched_item = dict(item)
-        photo_id = enriched_item.get("photo_id")
-        if photo_id:
-            if public_base_url:
-                thumbnail_url = f"{public_base_url}/api/v1/photographer/photos/{photo_id}/thumbnail"
-                download_url = (
-                    f"{public_base_url}/api/v1/photos/{photo_id}/download"
-                    f"?order_id={order_id}&inline=true"
-                )
-            else:
-                thumbnail_url = str(
-                    request.url_for("get_photo_thumbnail", photo_id=str(photo_id))
-                )
-                download_url = str(
-                    request.url_for("download_photo_file", photo_id=str(photo_id)).include_query_params(
-                        order_id=str(order_id),
-                        inline="true",
-                    )
-                )
-            enriched_item["thumbnail_url"] = thumbnail_url
-            enriched_item["download_url"] = download_url
-        enriched_lines.append(enriched_item)
-    return enriched_lines
+        for item in order.line_items or []
+    ]
+    return CheckoutOrderResponse(
+        order_id=order.id,
+        status=order.status,
+        paid=order.status == OrderStatus.CAPTURED,
+        customer_email=order.customer_email,
+        amount=order.amount,
+        currency=order.currency,
+        items=items,
+    )
 
 
 @router.post("/sessions", response_model=CheckoutSessionResponse)
@@ -186,166 +94,58 @@ async def create_session(
     body: CreateCheckoutSessionRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    klarna: KlarnaClient = Depends(get_klarna_client),
+    stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
-    clerk_token = request.headers.get("authorization")
-    user = await _get_or_create_user(auth=clerk_token, db=db)
-    session_payload = _build_klarna_session_payload(body)
-
-    service = OrderService(db)
-    order = await service.create_order(
-        user_id=user.id,
-        amount=session_payload["order_amount"],
-        currency=session_payload["purchase_currency"],
-        idempotency_key=body.idempotency_key,
-    )
-
-    if order.amount != session_payload["order_amount"] or order.currency != session_payload["purchase_currency"]:
-        raise ConflictError("Idempotency key was already used for a different checkout")
-
-    order = await service.get_order(order.id)
-    existing_session = _find_session_payload(order)
-    if existing_session:
-        return CheckoutSessionResponse(
-            session_id=existing_session["klarna_session_id"],
-            client_token=existing_session["klarna_client_token"],
-            order_id=order.id,
-        )
-
-    try:
-        klarna_response = await klarna.create_session(session_payload)
-    except Exception as exc:
-        raise _klarna_error(exc, "session creation") from exc
-
-    await service.record_transaction(
-        order.id,
-        PaymentTransactionType.AUTHORIZATION,
-        PaymentTransactionStatus.PENDING,
-        payload={
-            "klarna_session_id": klarna_response["session_id"],
-            "klarna_client_token": klarna_response["client_token"],
-            "klarna_session_payload": session_payload,
-            "klarna_payment_method_categories": klarna_response.get("payment_method_categories", []),
-        },
-    )
-
-    return CheckoutSessionResponse(
-        session_id=klarna_response["session_id"],
-        client_token=klarna_response["client_token"],
-        order_id=order.id,
-    )
+    user = await _get_or_create_user(auth=request.headers.get("authorization"), db=db)
+    service = _checkout_service(request, db, stripe_client)
+    order, session = await service.create_session(user, body.items, body.customer_email, body.cancel_path)
+    return CheckoutSessionResponse(order_id=order.id, session_id=session.id, checkout_url=session.url)
 
 
-@router.post("/authorize", response_model=OrderResponse)
-async def authorize(
-    body: AuthorizeCheckoutRequest,
+@router.get("/sessions/{session_id}", response_model=CheckoutOrderResponse)
+async def get_session_order(
+    session_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    klarna: KlarnaClient = Depends(get_klarna_client),
+    stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
-    service = OrderService(db)
-    order = await service.get_order(body.order_id)
-    session_payload = _find_session_payload(order)
-    if not session_payload:
-        raise BadRequestError("Order does not have an active Klarna checkout session")
+    """For the success page. The session id is only known to the buyer who paid."""
+    service = _checkout_service(request, db, stripe_client)
+    order = await service.get_order_for_session(session_id)
+    return _order_response(order, service)
 
-    order_payload = deepcopy(session_payload["klarna_session_payload"])
-    order_payload["merchant_reference1"] = str(order.id)
 
+@router.post("/webhook/stripe")
+async def stripe_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    stripe_client: stripe.StripeClient = Depends(get_stripe_client),
+):
+    settings = get_settings()
+    if not settings.stripe_webhook_secret:
+        raise BadRequestError("Stripe webhook secret is not configured")
+
+    payload = await request.body()
     try:
-        klarna_order = await klarna.create_order(body.authorization_token, order_payload)
-    except Exception as exc:
-        await service.record_transaction(
-            order.id,
-            PaymentTransactionType.AUTHORIZATION,
-            PaymentTransactionStatus.FAILED,
-            payload={
-                "authorization_token": body.authorization_token,
-                "klarna_order_payload": order_payload,
-                "error": str(exc),
-            },
+        event = stripe_client.construct_event(
+            payload,
+            request.headers.get("stripe-signature"),
+            settings.stripe_webhook_secret,
         )
-        raise _klarna_error(exc, "order creation") from exc
+    except (ValueError, stripe.SignatureVerificationError) as exc:
+        raise BadRequestError("Invalid Stripe webhook signature") from exc
 
-    await service.set_klarna_order_id(order.id, klarna_order["order_id"])
-    order = await service.update_order_status(order.id, OrderStatus.AUTHORIZED)
-    await service.record_transaction(
-        order.id,
-        PaymentTransactionType.AUTHORIZATION,
-        PaymentTransactionStatus.SUCCESS,
-        payload={
-            "authorization_token": body.authorization_token,
-            "klarna_order_payload": order_payload,
-            "klarna_order_response": klarna_order,
-        },
-    )
-
-    capture_payload = _capture_payload(order)
+    service = _checkout_service(request, db, stripe_client)
+    session = event.data.object
     try:
-        capture_response = await klarna.capture(klarna_order["order_id"], capture_payload)
-    except Exception as exc:
-        await service.record_transaction(
-            order.id,
-            PaymentTransactionType.CAPTURE,
-            PaymentTransactionStatus.FAILED,
-            payload={
-                "klarna_order_id": klarna_order["order_id"],
-                "klarna_capture_payload": capture_payload,
-                "error": str(exc),
-            },
-        )
-        raise _klarna_error(exc, "capture") from exc
+        if event.type in _PAID_EVENTS:
+            await service.fulfill(session)
+        elif event.type in _UNPAID_EVENTS:
+            await service.cancel_unpaid(session)
+        else:
+            logger.info("stripe_webhook_ignored", event_type=event.type)
+    except NotFoundError:
+        # Not one of our sessions (e.g. created in the dashboard): nothing to do, don't make Stripe retry
+        logger.warning("stripe_webhook_unknown_session", event_type=event.type, session_id=session.id)
 
-    capture_id = _capture_id_from_response(capture_response)
-    communication_status = "skipped"
-    communication_error = None
-    if capture_id:
-        try:
-            await klarna.trigger_customer_communication(klarna_order["order_id"], capture_id)
-            communication_status = "triggered"
-        except Exception as exc:
-            communication_status = "failed"
-            communication_error = str(exc)
-
-    receipt_email = {"status": "skipped", "reason": "not_attempted"}
-    try:
-        receipt_line_items = _order_lines_with_download_urls(
-            request,
-            order.id,
-            order_payload["order_lines"],
-        )
-        receipt_email = await TransactionalEmailService(get_settings()).send_purchase_receipt(
-            recipient_email=order_payload.get("billing_address", {}).get("email"),
-            order_id=str(order.id),
-            amount=order.amount,
-            currency=order.currency,
-            line_items=receipt_line_items,
-        )
-    except Exception as exc:
-        receipt_email = {"status": "failed", "error": str(exc)}
-
-    order = await service.update_order_status(order.id, OrderStatus.CAPTURED)
-    await service.create_photo_purchases(order, order_payload["order_lines"])
-    await service.record_transaction(
-        order.id,
-        PaymentTransactionType.CAPTURE,
-        PaymentTransactionStatus.SUCCESS,
-        payload={
-            "klarna_order_id": klarna_order["order_id"],
-            "klarna_capture_id": capture_id,
-            "klarna_capture_payload": capture_payload,
-            "klarna_customer_communication_status": communication_status,
-            "klarna_customer_communication_error": communication_error,
-            "purchase_receipt_email": receipt_email,
-        },
-    )
-
-    order = await service.get_order(order.id)
-    return OrderResponse.model_validate(order)
-
-
-@router.post("/callback/klarna")
-async def klarna_callback(request: Request, db: AsyncSession = Depends(get_db)):
-    await request.json()
-    # In production, validate Klarna signature and update order
-    return {"status": "received"}
+    return {"received": True}

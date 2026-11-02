@@ -166,6 +166,17 @@ async def test_get_event_schedule(async_client, db_session):
                         "position": 0,
                         "date": "2026-05-07",
                         "class_no": "D09",
+                        "class_sections": [
+                            {
+                                "id": 1235205,
+                                "meeting_class_id": 1198540,
+                                "categories": ["H"],
+                                "sec_per_start": 128,
+                                "finish_at": "2026-05-07 15:05:00 +0200",
+                                "state": "results",
+                                "total": 26,
+                            }
+                        ],
                     },
                     {
                         "id": 1190641,
@@ -189,3 +200,5 @@ async def test_get_event_schedule(async_client, db_session):
     assert data["days"][0]["date"] == "2026-05-07"
     assert data["days"][0]["classes"][0]["name"] == "D09 · Prix St-Georges · CDI1*"
     assert data["days"][0]["classes"][0]["arena"] == "Green arena"
+    assert data["days"][0]["classes"][0]["class_sections"][0]["id"] == "1235205"
+    assert data["days"][0]["classes"][0]["class_sections"][0]["meeting_class_id"] == "1198540"
