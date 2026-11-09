@@ -150,6 +150,19 @@ def test_pem_key_rejects_wrong_signature(rsa_public_key):
         ClerkAuth("", jwt_key=_pem(rsa_public_key)).validate_token(token)
 
 
+def test_small_clock_skew_is_accepted(rsa_keypair, rsa_public_key):
+    import time
+
+    clerk = ClerkAuth("", jwt_key=_pem(rsa_public_key))
+    # Clerk's clock a little ahead of ours: iat is "in the future" here
+    ahead = pyjwt.encode({"sub": "u", "iat": int(time.time()) + 2}, rsa_keypair, algorithm="RS256")
+    assert clerk.validate_token(ahead)["sub"] == "u"
+    # Far beyond the allowed skew is still rejected
+    too_far = pyjwt.encode({"sub": "u", "iat": int(time.time()) + 60}, rsa_keypair, algorithm="RS256")
+    with pytest.raises(UnauthorizedError):
+        clerk.validate_token(too_far)
+
+
 def test_azp_must_be_one_of_our_sites(rsa_keypair, rsa_public_key):
     clerk = ClerkAuth("", jwt_key=_pem(rsa_public_key), authorized_parties=["https://gallopics.com/"])
     ours = pyjwt.encode({"sub": "u", "azp": "https://gallopics.com"}, rsa_keypair, algorithm="RS256")
@@ -179,3 +192,80 @@ def test_authorized_parties_default_to_cors_and_frontend():
     )
     settings.clerk_authorized_parties = "https://only.example"
     assert _authorized_parties(settings) == ("https://only.example",)
+
+
+# --- Email sync: the session token's `email` claim keeps users.email up to date ---
+
+
+@pytest.fixture
+def clerk_email_api(monkeypatch):
+    """Stands in for Clerk's user API; records which users were looked up."""
+    from app.integrations.clerk import auth as clerk_auth
+
+    calls: list[str] = []
+
+    async def _fake_fetch(clerk_user_id: str, secret_key: str) -> str:
+        calls.append(clerk_user_id)
+        return "from-api@example.com"
+
+    monkeypatch.setattr(clerk_auth, "_fetch_clerk_email", _fake_fetch)
+    return calls
+
+
+def test_email_from_claims():
+    from app.integrations.clerk.auth import email_from_claims
+
+    assert email_from_claims({"email": " a@b.com "}) == "a@b.com"
+    # Users without an email get null from {{user.primary_email_address}}
+    assert email_from_claims({"email": None}) == ""
+    assert email_from_claims({"email": "  "}) == ""
+    assert email_from_claims({}) == ""
+
+
+async def test_new_user_gets_email_from_token(async_client, make_jwt, clerk_email_api):
+    token = make_jwt({"sub": "clerk_new_user", "email": "new@example.com"})
+    response = await async_client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.json()["email"] == "new@example.com"
+    assert clerk_email_api == []
+
+
+async def test_changed_email_in_token_updates_user(
+    async_client, db_session, make_jwt, photographer_user, clerk_email_api
+):
+    token = make_jwt({"sub": "clerk_photographer_test", "email": "changed@example.com"})
+    response = await async_client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.json()["email"] == "changed@example.com"
+    await db_session.refresh(photographer_user)
+    assert photographer_user.email == "changed@example.com"
+    assert clerk_email_api == []
+
+
+async def test_token_without_email_keeps_saved_email(
+    async_client, db_session, make_jwt, photographer_user, clerk_email_api
+):
+    for claims in ({"sub": "clerk_photographer_test", "email": None}, {"sub": "clerk_photographer_test"}):
+        response = await async_client.get(
+            "/api/v1/me", headers={"Authorization": f"Bearer {make_jwt(claims)}"}
+        )
+        assert response.status_code == 200
+        assert response.json()["email"] == "photo@example.com"
+    # We already have an email, so Clerk's API is not asked
+    assert clerk_email_api == []
+
+
+async def test_user_without_email_falls_back_to_clerk_api(
+    async_client, db_session, make_jwt, clerk_email_api
+):
+    from app.models.user import User
+
+    user = User(clerk_user_id="clerk_no_email", email="")
+    db_session.add(user)
+    await db_session.flush()
+
+    token = make_jwt({"sub": "clerk_no_email", "email": None})
+    response = await async_client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.json()["email"] == "from-api@example.com"
+    assert clerk_email_api == ["clerk_no_email"]

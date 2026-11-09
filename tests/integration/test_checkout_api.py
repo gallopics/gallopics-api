@@ -400,3 +400,21 @@ async def test_create_session_rejects_offsite_cancel_path(async_client, db_sessi
     )
     assert response.status_code == 422
     assert fake_stripe.sessions.created == []
+
+
+async def test_signed_in_buyer_without_email_claim_gets_own_user(async_client, db_session, fake_stripe, make_jwt):
+    # Clerk's session token has "email": null for a user without an email; the order must
+    # still belong to that user (not fail, and not fall back to the shared guest user)
+    photo = await _make_photo(db_session)
+    token = make_jwt({"sub": "clerk_buyer_no_email", "email": None})
+    response = await async_client.post(
+        "/api/v1/checkout/sessions",
+        json={"items": [{"photo_id": str(photo.id), "quality": "high"}], "customer_email": "buyer@example.com"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+
+    order = await _order(db_session, response.json()["order_id"])
+    user = await db_session.get(User, order.user_id)
+    assert user.clerk_user_id == "clerk_buyer_no_email"
+    assert user.email == ""
