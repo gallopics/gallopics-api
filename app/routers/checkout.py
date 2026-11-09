@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.exceptions import BadRequestError, NotFoundError
-from app.integrations.clerk.auth import get_clerk_auth
+from app.integrations.clerk.auth import email_from_claims, get_clerk_auth
 from app.integrations.stripe.client import get_stripe_client
 from app.models.enums import OrderStatus
 from app.models.order import Order
@@ -43,7 +43,7 @@ async def _get_or_create_user(
             user_service = UserService(db)
             user, _ = await user_service.get_or_create_by_clerk_id(
                 clerk_user_id=claims["sub"],
-                email=claims.get("email", ""),
+                email=email_from_claims(claims),
             )
             return user
         except Exception:

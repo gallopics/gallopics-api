@@ -18,6 +18,11 @@ from app.models.photographer import Photographer
 from app.models.user import User
 from app.services.user_service import UserService
 
+# Clock difference allowed between Clerk (which sets iat/nbf/exp) and this server.
+# Without it, a brand-new token is "not yet valid (iat)" whenever our clock is even a
+# fraction of a second behind Clerk's. 5 seconds is the default in Clerk's own SDKs.
+CLOCK_SKEW_SECONDS = 5
+
 
 @lru_cache(maxsize=8)
 def _jwk_client(jwks_url: str) -> PyJWKClient:
@@ -70,6 +75,7 @@ class ClerkAuth:
                 key,
                 algorithms=["RS256"],
                 options={"verify_aud": False},
+                leeway=CLOCK_SKEW_SECONDS,
             )
         except (jwt.InvalidTokenError, PyJWKClientError, ValueError) as e:
             raise UnauthorizedError(f"Invalid token: {e}") from e
@@ -119,11 +125,14 @@ async def _fetch_clerk_email(clerk_user_id: str, secret_key: str) -> str:
     return ""
 
 
-def _email_from_claims(claims: dict) -> str:
-    """An email in the token itself (e.g. added through Clerk's session token template)."""
+def email_from_claims(claims: dict) -> str:
+    """An email in the token itself (Clerk session token claim `"email": "{{user.primary_email_address}}"`).
+
+    Users without an email get `null` there, so this returns "" for them.
+    """
     email = claims.get("email")
-    if isinstance(email, str) and email:
-        return email
+    if isinstance(email, str) and email.strip():
+        return email.strip()
     addresses = claims.get("email_addresses", [])
     if addresses and isinstance(addresses[0], dict):
         return addresses[0].get("email_address", "") or ""
@@ -138,7 +147,9 @@ async def get_current_user(
 
     Roles and photographer approval live in our database only (set by admins in the admin
     pages); Clerk metadata is never trusted for access, since users can edit parts of it.
-    Clerk's API is only asked for the email of a user we have no email for yet.
+    The email is kept in sync from the session token's `email` claim (there are no Clerk
+    webhooks): when it differs from ours, ours is updated. Clerk's API is only asked when the
+    token has no email and we have none on file yet.
     """
     if not authorization.startswith("Bearer "):
         raise UnauthorizedError("Invalid authorization header")
@@ -147,11 +158,9 @@ async def get_current_user(
 
     result = await db.execute(select(User).where(User.clerk_user_id == clerk_user_id))
     user = result.scalar_one_or_none()
-    if user and user.email:
-        return user
 
-    email = _email_from_claims(claims)
-    if not email:
+    email = email_from_claims(claims)
+    if not email and not (user and user.email):
         settings = get_settings()
         try:
             email = await _fetch_clerk_email(clerk_user_id, settings.clerk_secret_key)
@@ -159,9 +168,13 @@ async def get_current_user(
             email = ""
 
     if user:
-        if email:
+        # An empty claim never clears a saved email (e.g. a token without the claim)
+        if email and email != user.email:
             user.email = email
             await db.flush()
+            # Reload the database-set updated_at now: reading it later (e.g. in a response
+            # model) would need a lazy async load and fail
+            await db.refresh(user, ["updated_at"])
         return user
 
     user, _ = await UserService(db).get_or_create_by_clerk_id(clerk_user_id=clerk_user_id, email=email)
