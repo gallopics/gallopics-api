@@ -150,6 +150,19 @@ def test_pem_key_rejects_wrong_signature(rsa_public_key):
         ClerkAuth("", jwt_key=_pem(rsa_public_key)).validate_token(token)
 
 
+def test_small_clock_skew_is_accepted(rsa_keypair, rsa_public_key):
+    import time
+
+    clerk = ClerkAuth("", jwt_key=_pem(rsa_public_key))
+    # Clerk's clock a little ahead of ours: iat is "in the future" here
+    ahead = pyjwt.encode({"sub": "u", "iat": int(time.time()) + 2}, rsa_keypair, algorithm="RS256")
+    assert clerk.validate_token(ahead)["sub"] == "u"
+    # Far beyond the allowed skew is still rejected
+    too_far = pyjwt.encode({"sub": "u", "iat": int(time.time()) + 60}, rsa_keypair, algorithm="RS256")
+    with pytest.raises(UnauthorizedError):
+        clerk.validate_token(too_far)
+
+
 def test_azp_must_be_one_of_our_sites(rsa_keypair, rsa_public_key):
     clerk = ClerkAuth("", jwt_key=_pem(rsa_public_key), authorized_parties=["https://gallopics.com/"])
     ours = pyjwt.encode({"sub": "u", "azp": "https://gallopics.com"}, rsa_keypair, algorithm="RS256")

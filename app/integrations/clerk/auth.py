@@ -18,6 +18,11 @@ from app.models.photographer import Photographer
 from app.models.user import User
 from app.services.user_service import UserService
 
+# Clock difference allowed between Clerk (which sets iat/nbf/exp) and this server.
+# Without it, a brand-new token is "not yet valid (iat)" whenever our clock is even a
+# fraction of a second behind Clerk's. 5 seconds is the default in Clerk's own SDKs.
+CLOCK_SKEW_SECONDS = 5
+
 
 @lru_cache(maxsize=8)
 def _jwk_client(jwks_url: str) -> PyJWKClient:
@@ -70,6 +75,7 @@ class ClerkAuth:
                 key,
                 algorithms=["RS256"],
                 options={"verify_aud": False},
+                leeway=CLOCK_SKEW_SECONDS,
             )
         except (jwt.InvalidTokenError, PyJWKClientError, ValueError) as e:
             raise UnauthorizedError(f"Invalid token: {e}") from e
