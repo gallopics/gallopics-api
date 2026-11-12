@@ -336,7 +336,10 @@ async def upload_photos(
     await _match_uploaded_photos(db, photos, event_uuid)
     await db.flush()
 
-    return await _photo_responses(db, photos)
+    responses = await _photo_responses(db, photos)
+    # Clients can PATCH the returned IDs as soon as they receive this response.
+    await db.commit()
+    return responses
 
 
 @router.post("/uploads/complete", response_model=list[OwnPhotoResponse])
@@ -383,7 +386,7 @@ async def complete_upload(
         taken_at=taken_at,
     )
 
-    # Commit the transaction so photos are queryable
+    # Flush photo IDs for processing within this transaction.
     await db.flush()
 
     # Trigger async image processing
@@ -398,7 +401,9 @@ async def complete_upload(
     await _match_uploaded_photos(db, photos, event_id)
     await db.flush()
 
-    return await _photo_responses(db, photos)
+    responses = await _photo_responses(db, photos)
+    await db.commit()
+    return responses
 
 
 @router.get("/photos", response_model=PaginatedResponse[OwnPhotoResponse])
