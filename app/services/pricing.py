@@ -20,12 +20,13 @@ class QualityTier:
     id: str
     label: str
     default_amount: int
+    max_long_side: int | None = None
 
 
 QUALITY_TIERS: dict[str, QualityTier] = {
     tier.id: tier
     for tier in (
-        QualityTier("web", "Web quality", 49_900),
+        QualityTier("web", "Web quality", 49_900, 1080),
         QualityTier("high", "High quality", 99_900),
         QualityTier("commercial", "Commercial use", 150_000),
     )

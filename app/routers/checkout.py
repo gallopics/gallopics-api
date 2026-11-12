@@ -74,7 +74,7 @@ def _order_response(order: Order, service: CheckoutService) -> CheckoutOrderResp
             quality=item["quality"],
             name=item["name"],
             amount=item["total_amount"],
-            thumbnail_url=photo_urls(service.public_base_url, item["photo_id"], order.id)["thumbnail_url"],
+            thumbnail_url=photo_urls(service.public_base_url, item["photo_id"], order.id, item["quality"])["thumbnail_url"],
         )
         for item in order.line_items or []
     ]

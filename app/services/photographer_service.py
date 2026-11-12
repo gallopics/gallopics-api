@@ -28,6 +28,7 @@ from app.models.photographer import (
 )
 from app.models.user import User
 from app.storage.base import StorageBackend
+from app.services.download_service import download_cache_keys
 
 UPLOAD_SESSION_KEY = "upload_session:{session_id}"
 UPLOAD_SESSION_TTL = 3600  # 1 hour
@@ -500,7 +501,7 @@ class PhotographerService:
             raise ConflictError("This photo has been sold and can't be deleted")
 
         # Delete from storage
-        for key in [photo.storage_key_original, photo.storage_key_preview, photo.storage_key_thumbnail]:
+        for key in [photo.storage_key_original, photo.storage_key_preview, photo.storage_key_thumbnail, *download_cache_keys(photo.id)]:
             if key:
                 await self.storage.delete_object(key)
 
