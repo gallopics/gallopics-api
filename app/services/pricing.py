@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from app.exceptions import BadRequestError
 
 if TYPE_CHECKING:
-    from app.models.photographer import Photo
+    from app.models.photographer import Photo, Photographer
 
 
 @dataclass(frozen=True)
@@ -45,14 +45,16 @@ def get_quality_tier(quality: str) -> QualityTier:
     return tier
 
 
+def photographer_default_price(photographer: "Photographer | None", tier: QualityTier) -> int:
+    """What a photo without its own price costs in this tier, in öre."""
+    default = getattr(photographer, f"default_price_{tier.id}", None) if photographer else None
+    return default if default is not None else tier.default_amount
+
+
 def photo_price(photo: "Photo", tier: QualityTier) -> int:
     """What this photo costs in this tier, in öre."""
     own = getattr(photo, f"price_{tier.id}")
-    if own is not None:
-        return own
-    photographer = photo.photographer
-    default = getattr(photographer, f"default_price_{tier.id}", None) if photographer else None
-    return default if default is not None else tier.default_amount
+    return own if own is not None else photographer_default_price(photo.photographer, tier)
 
 
 def validate_price(amount: int) -> int:

@@ -40,7 +40,7 @@ from app.schemas.photographer import (
 )
 from app.services.photo_matching_service import PhotoMatchingService
 from app.services.photographer_service import PhotographerService
-from app.services.pricing import QUALITY_TIERS
+from app.services.pricing import QUALITY_TIERS, photographer_default_price
 from app.storage.base import get_storage_backend
 
 router = APIRouter(prefix="/api/v1/photographer", tags=["photographer"])
@@ -132,10 +132,9 @@ async def upsert_my_photographer_profile(
 
 
 def _photographer_prices(photographer) -> PhotographerPricesResponse:
-    defaults = {tier_id: getattr(photographer, f"default_price_{tier_id}") for tier_id in QUALITY_TIERS}
     return PhotographerPricesResponse(
-        defaults=defaults,
-        effective={tier.id: defaults[tier.id] if defaults[tier.id] is not None else tier.default_amount for tier in QUALITY_TIERS.values()},
+        defaults={tier_id: getattr(photographer, f"default_price_{tier_id}") for tier_id in QUALITY_TIERS},
+        effective={tier.id: photographer_default_price(photographer, tier) for tier in QUALITY_TIERS.values()},
     )
 
 
