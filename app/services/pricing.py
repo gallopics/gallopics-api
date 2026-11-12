@@ -1,7 +1,6 @@
 """Photo prices per quality tier.
 
-Every photo has its own price per tier (`photos.price_web` / `price_high` / `price_commercial`),
-set by its photographer; the tier amounts here are the defaults for new and existing photos.
+Unset photo prices follow their photographer's defaults, falling back to the site defaults here.
 Amounts are in öre (SEK minor units), the unit Stripe and `orders.amount` use.
 Keep in sync with the frontend's `src/constants/qualityTiers.ts`.
 """
@@ -48,7 +47,12 @@ def get_quality_tier(quality: str) -> QualityTier:
 
 def photo_price(photo: "Photo", tier: QualityTier) -> int:
     """What this photo costs in this tier, in öre."""
-    return getattr(photo, f"price_{tier.id}")
+    own = getattr(photo, f"price_{tier.id}")
+    if own is not None:
+        return own
+    photographer = photo.photographer
+    default = getattr(photographer, f"default_price_{tier.id}", None) if photographer else None
+    return default if default is not None else tier.default_amount
 
 
 def validate_price(amount: int) -> int:

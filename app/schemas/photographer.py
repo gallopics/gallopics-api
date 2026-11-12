@@ -72,6 +72,7 @@ class OwnPhotoResponse(PhotoResponse):
     file_name: Optional[str] = None
     # Private to the photographer, so not on PhotoResponse
     folder_id: Optional[uuid.UUID] = None
+    own_prices: dict[str, int | None]
 
 
 class PhotographerResponse(BaseModel):
@@ -134,7 +135,7 @@ class CompleteUploadRequest(BaseModel):
 
 
 class UpdatePhotoPricesFields(BaseModel):
-    """New prices in öre; tiers left out keep their price."""
+    """Prices in öre; omitted tiers stay unchanged, null follows the default."""
 
     web: Optional[int] = None
     high: Optional[int] = None
@@ -144,6 +145,11 @@ class UpdatePhotoPricesFields(BaseModel):
     @classmethod
     def validate_amount(cls, value: Optional[int]) -> Optional[int]:
         return None if value is None else validate_price(value)
+
+
+class PhotographerPricesResponse(BaseModel):
+    defaults: dict[str, int | None]
+    effective: PhotoPrices
 
 
 class UpdatePhotoRequest(BaseModel):

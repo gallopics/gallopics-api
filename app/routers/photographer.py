@@ -29,15 +29,18 @@ from app.schemas.photographer import (
     OwnPhotoResponse,
     PhotoFolderResponse,
     PhotographerResponse,
+    PhotographerPricesResponse,
     RenamePhotoFolderRequest,
     UpdateHighlightsRequest,
     UpdatePhotoPricesRequest,
+    UpdatePhotoPricesFields,
     UpdatePhotoRequest,
     UploadSessionResponse,
     UpsertPhotographerProfileRequest,
 )
 from app.services.photo_matching_service import PhotoMatchingService
 from app.services.photographer_service import PhotographerService
+from app.services.pricing import QUALITY_TIERS
 from app.storage.base import get_storage_backend
 
 router = APIRouter(prefix="/api/v1/photographer", tags=["photographer"])
@@ -126,6 +129,31 @@ async def upsert_my_photographer_profile(
     service = PhotographerService(db)
     photographer = await service.upsert_profile(user, body.model_dump())
     return PhotographerResponse.model_validate(photographer)
+
+
+def _photographer_prices(photographer) -> PhotographerPricesResponse:
+    defaults = {tier_id: getattr(photographer, f"default_price_{tier_id}") for tier_id in QUALITY_TIERS}
+    return PhotographerPricesResponse(
+        defaults=defaults,
+        effective={tier.id: defaults[tier.id] if defaults[tier.id] is not None else tier.default_amount for tier in QUALITY_TIERS.values()},
+    )
+
+
+@router.get("/me/prices", response_model=PhotographerPricesResponse)
+async def get_my_default_prices(user: User = Depends(require_approved_photographer), db: AsyncSession = Depends(get_db)):
+    photographer = await PhotographerService(db).get_photographer_for_user(user.id)
+    return _photographer_prices(photographer)
+
+
+@router.patch("/me/prices", response_model=PhotographerPricesResponse)
+async def update_my_default_prices(body: UpdatePhotoPricesFields, user: User = Depends(require_approved_photographer), db: AsyncSession = Depends(get_db)):
+    photographer = await PhotographerService(db).get_photographer_for_user(user.id)
+    for tier_id, amount in body.model_dump(exclude_unset=True).items():
+        setattr(photographer, f"default_price_{tier_id}", amount)
+    await db.flush()
+    response = _photographer_prices(photographer)
+    await db.commit()
+    return response
 
 
 @router.post("/me/avatar", response_model=PhotographerResponse)

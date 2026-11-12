@@ -397,8 +397,7 @@ class PhotographerService:
     @staticmethod
     def _set_prices(photo: Photo, prices: dict) -> None:
         for tier_id, amount in prices.items():
-            if amount is not None:
-                setattr(photo, f"price_{tier_id}", amount)
+            setattr(photo, f"price_{tier_id}", amount)
 
     async def list_folders(
         self, photographer_id: uuid.UUID, event_id: Optional[uuid.UUID] = None
