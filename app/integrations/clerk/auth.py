@@ -141,7 +141,7 @@ def email_from_claims(claims: dict) -> str:
 
 async def get_current_user(
     authorization: str = Header(alias="Authorization"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> User:
     """The signed-in user, from our database.
 
@@ -191,7 +191,7 @@ def require_role(*roles: UserRole):
 
 async def require_approved_photographer(
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> User:
     """A photographer an admin has approved; needed for anything that books, uploads or sells."""
     result = await db.execute(select(Photographer).where(Photographer.user_id == user.id))

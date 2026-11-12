@@ -38,7 +38,7 @@ async def list_all_orders(
     status: Optional[OrderStatus] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     query = select(Order)
     if status:
@@ -65,7 +65,7 @@ async def list_all_orders(
 async def manual_match(
     event_id: uuid.UUID,
     body: ManualMatchRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = MatchingService(db)
     event = await service.manual_match(event_id, body.equipe_id)
@@ -75,7 +75,7 @@ async def manual_match(
 @router.post("/events/{event_id}/unmatch", response_model=EventResponse)
 async def unmatch(
     event_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = MatchingService(db)
     event = await service.unmatch(event_id)
@@ -85,7 +85,7 @@ async def unmatch(
 @router.post("/equipe/shows/{meeting_id}/import", response_model=EventResponse)
 async def import_equipe_show(
     meeting_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     settings = get_settings()
     equipe_client = EquipeClient(settings.equipe_base_url)
@@ -117,7 +117,7 @@ def _admin_photographer(photographer: Photographer, email: str, photo_count: int
 @router.get("/photographers", response_model=list[AdminPhotographerResponse])
 async def list_photographers(
     status: Optional[PhotographerStatus] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """All photographers, newest first (filter with ?status=pending to review sign-ups)."""
     photo_counts = (
@@ -141,7 +141,7 @@ async def list_photographers(
 async def update_photographer_status(
     photographer_id: uuid.UUID,
     body: UpdatePhotographerStatusRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Approve or reject (status "suspended") a photographer, or set them back to pending."""
     photographer = (await db.execute(

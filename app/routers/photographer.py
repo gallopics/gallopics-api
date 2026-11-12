@@ -113,7 +113,7 @@ async def _match_uploaded_photos(db: AsyncSession, photos: list[Photo], event_id
 @router.get("/me", response_model=PhotographerResponse)
 async def get_my_photographer_profile(
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -124,7 +124,7 @@ async def get_my_photographer_profile(
 async def upsert_my_photographer_profile(
     body: UpsertPhotographerProfileRequest,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.upsert_profile(user, body.model_dump())
@@ -140,27 +140,25 @@ def _photographer_prices(photographer) -> PhotographerPricesResponse:
 
 
 @router.get("/me/prices", response_model=PhotographerPricesResponse)
-async def get_my_default_prices(user: User = Depends(require_approved_photographer), db: AsyncSession = Depends(get_db)):
+async def get_my_default_prices(user: User = Depends(require_approved_photographer), db: AsyncSession = Depends(get_db, scope="function")):
     photographer = await PhotographerService(db).get_photographer_for_user(user.id)
     return _photographer_prices(photographer)
 
 
 @router.patch("/me/prices", response_model=PhotographerPricesResponse)
-async def update_my_default_prices(body: UpdatePhotoPricesFields, user: User = Depends(require_approved_photographer), db: AsyncSession = Depends(get_db)):
+async def update_my_default_prices(body: UpdatePhotoPricesFields, user: User = Depends(require_approved_photographer), db: AsyncSession = Depends(get_db, scope="function")):
     photographer = await PhotographerService(db).get_photographer_for_user(user.id)
     for tier_id, amount in body.model_dump(exclude_unset=True).items():
         setattr(photographer, f"default_price_{tier_id}", amount)
     await db.flush()
-    response = _photographer_prices(photographer)
-    await db.commit()
-    return response
+    return _photographer_prices(photographer)
 
 
 @router.post("/me/avatar", response_model=PhotographerResponse)
 async def upload_my_avatar(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     storage = _get_storage()
     service = PhotographerService(db, storage)
@@ -171,7 +169,7 @@ async def upload_my_avatar(
 @public_router.get("/{slug_or_id}", response_model=PhotographerResponse)
 async def get_public_photographer_profile(
     slug_or_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_public_photographer(slug_or_id)
@@ -181,7 +179,7 @@ async def get_public_photographer_profile(
 @router.get("/bookings", response_model=list[EventResponse])
 async def list_my_event_bookings(
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -193,7 +191,7 @@ async def list_my_event_bookings(
 async def book_event(
     event_id: uuid.UUID,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -205,7 +203,7 @@ async def book_event(
 async def cancel_event_booking(
     event_id: uuid.UUID,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -215,7 +213,7 @@ async def cancel_event_booking(
 @router.get("/highlights", response_model=HighlightsResponse)
 async def get_highlights(
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -226,7 +224,7 @@ async def get_highlights(
 async def update_highlights(
     body: UpdateHighlightsRequest,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -237,7 +235,7 @@ async def update_highlights(
 @public_router.get("/{slug_or_id}/highlights", response_model=HighlightsResponse)
 async def get_public_photographer_highlights(
     slug_or_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_public_photographer(slug_or_id)
@@ -248,7 +246,7 @@ async def get_public_photographer_highlights(
 async def create_upload_session(
     body: CreateUploadSessionRequest,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     storage = _get_storage()
     service = PhotographerService(db, storage)
@@ -278,7 +276,7 @@ async def upload_photos(
     taken_at: Optional[str] = Form(None),
     files: list[UploadFile] = File(...),
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Direct multipart upload endpoint for browser integration.
 
@@ -364,17 +362,14 @@ async def upload_photos(
     await _match_uploaded_photos(db, photos, event_uuid)
     await db.flush()
 
-    responses = await _photo_responses(db, photos)
-    # Clients can PATCH the returned IDs as soon as they receive this response.
-    await db.commit()
-    return responses
+    return await _photo_responses(db, photos)
 
 
 @router.post("/uploads/complete", response_model=list[OwnPhotoResponse])
 async def complete_upload(
     body: CompleteUploadRequest,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     storage = _get_storage()
     from app.redis import get_redis
@@ -429,9 +424,7 @@ async def complete_upload(
     await _match_uploaded_photos(db, photos, event_id)
     await db.flush()
 
-    responses = await _photo_responses(db, photos)
-    await db.commit()
-    return responses
+    return await _photo_responses(db, photos)
 
 
 @router.get("/photos", response_model=PaginatedResponse[OwnPhotoResponse])
@@ -442,7 +435,7 @@ async def list_my_photos(
     visibility: Optional[PhotoVisibility] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     storage = _get_storage()
     service = PhotographerService(db, storage)
@@ -463,7 +456,7 @@ async def list_my_photos(
 async def update_photo_prices(
     body: UpdatePhotoPricesRequest,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -478,7 +471,7 @@ async def update_photo_prices(
 async def move_photos_to_folder(
     body: MovePhotosToFolderRequest,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -491,7 +484,7 @@ async def update_photo(
     photo_id: uuid.UUID,
     body: UpdatePhotoRequest,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     storage = _get_storage()
     service = PhotographerService(db, storage)
@@ -503,7 +496,7 @@ async def update_photo(
 @router.get("/photos/{photo_id}/preview", include_in_schema=False)
 async def get_photo_preview(
     photo_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Serve a photo's watermarked preview from storage."""
     from io import BytesIO
@@ -539,7 +532,7 @@ async def get_photo_preview(
 @router.get("/photos/{photo_id}/thumbnail", include_in_schema=False)
 async def get_photo_thumbnail(
     photo_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Serve a photo thumbnail from storage."""
     from io import BytesIO
@@ -575,7 +568,7 @@ async def get_photo_thumbnail(
 async def delete_photo(
     photo_id: uuid.UUID,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     storage = _get_storage()
     service = PhotographerService(db, storage)
@@ -587,7 +580,7 @@ async def delete_photo(
 async def list_my_folders(
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
     event_id: Optional[uuid.UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -598,7 +591,7 @@ async def list_my_folders(
 async def create_folder(
     body: CreatePhotoFolderRequest,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -610,7 +603,7 @@ async def rename_folder(
     folder_id: uuid.UUID,
     body: RenamePhotoFolderRequest,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
@@ -621,7 +614,7 @@ async def rename_folder(
 async def delete_folder(
     folder_id: uuid.UUID,
     user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)

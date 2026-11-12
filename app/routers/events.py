@@ -67,7 +67,7 @@ async def list_events(
     include_inactive: bool = False,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     filters = EventFilters(
         date_from=date_from,
@@ -93,21 +93,21 @@ async def list_events(
 
 
 @router.get("/{event_id}", response_model=EventResponse)
-async def get_event(event_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_event(event_id: uuid.UUID, db: AsyncSession = Depends(get_db, scope="function")):
     service = EventService(db)
     event = await service.get_event(event_id)
     return EventResponse.model_validate(event)
 
 
 @router.get("/{event_id}/results", response_model=list[EventResultResponse])
-async def get_event_results(event_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_event_results(event_id: uuid.UUID, db: AsyncSession = Depends(get_db, scope="function")):
     service = EventService(db)
     results = await service.get_event_results(event_id)
     return [EventResultResponse.model_validate(r) for r in results]
 
 
 @router.get("/{event_id}/schedule", response_model=EventScheduleResponse)
-async def get_event_schedule(event_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_event_schedule(event_id: uuid.UUID, db: AsyncSession = Depends(get_db, scope="function")):
     settings = get_settings()
     equipe_client = EquipeClient(settings.equipe_base_url)
     try:

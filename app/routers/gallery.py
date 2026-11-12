@@ -31,7 +31,7 @@ async def get_gallery(
     class_id: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = GalleryService(db)
     items, total = await service.get_event_gallery(event_id, page, page_size, class_id)
@@ -49,7 +49,7 @@ async def search_gallery(
     q: str = Query(...),
     tag_type: Optional[PhotoTagType] = None,
     class_id: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = GalleryService(db)
     photos = await service.search_event_gallery(event_id, q, tag_type, class_id)
@@ -57,7 +57,7 @@ async def search_gallery(
 
 
 @router.get("/api/v1/photos/{photo_id}", response_model=PhotoResponse)
-async def get_photo(photo_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_photo(photo_id: uuid.UUID, db: AsyncSession = Depends(get_db, scope="function")):
     service = GalleryService(db)
     photo = await service.get_photo_detail(photo_id)
     return PhotoResponse.model_validate(photo)
@@ -101,7 +101,7 @@ async def create_photo_download(
     photo_id: uuid.UUID,
     body: PhotoDownloadRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     purchase = await _get_captured_photo_purchase(photo_id, body.order_id, db, body.quality)
     url = request.url_for("download_photo_file", photo_id=str(photo_id)).include_query_params(
@@ -116,7 +116,7 @@ async def download_photo_file(
     order_id: uuid.UUID,
     inline: bool = Query(False),
     quality: str | None = Query(None),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     purchase = await _get_captured_photo_purchase(photo_id, order_id, db, quality)
     storage = get_storage_backend(get_settings())

@@ -12,6 +12,11 @@ async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """One session per request, committed when the endpoint returns.
+
+    Always use `Depends(get_db, scope="function")`: the default scope commits only
+    after the response is sent, so a client could not yet use what it just created.
+    """
     async with async_session_factory() as session:
         try:
             yield session
