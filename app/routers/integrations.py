@@ -3,13 +3,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
+from app.integrations.clerk.auth import require_role
 from app.integrations.equipe.client import EquipeClient
 from app.integrations.tdb.client import TDBClient
+from app.models.enums import UserRole
 from app.schemas.event import EventResponse
 from app.services.event_service import EventService
 from app.services.matching_service import MatchingService
 
-router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
+# Admins only: the nightly sync runs scripts/sync_equipe.py on the server instead
+router = APIRouter(
+    prefix="/api/v1/integrations",
+    tags=["integrations"],
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
+)
 
 
 @router.post("/tdb/sync")
