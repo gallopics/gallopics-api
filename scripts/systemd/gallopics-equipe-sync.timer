@@ -1,0 +1,11 @@
+# Once a day, at night in Sweden. Persistent: a run missed while the server was off happens at boot.
+[Unit]
+Description=Nightly Gallopics Equipe event sync
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Europe/Stockholm
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

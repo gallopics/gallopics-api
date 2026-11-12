@@ -82,20 +82,23 @@ For Stripe on a server, create two webhook endpoints in the Stripe Dashboard and
 
 Live mode requires HTTPS endpoints; test mode also accepts plain HTTP.
 
-After the service is live, you can rerun the same imports through the API by pointing `SERVICE_URL` at the server:
+To sync Equipe events right away, run on the server, in the API folder:
 
 ```bash
-SERVICE_URL=http://82.96.43.103:8081 bash scripts/post_deploy_sync.sh
+bash scripts/post_deploy_sync.sh   # = .venv/bin/python -m scripts.sync_equipe
 ```
 
-Production should also run a Celery worker and Celery Beat so the Equipe recent-meetings feed stays fresh (Beat only schedules the sync every 30 minutes; the worker runs it):
+Production syncs once a night with a systemd timer (no Celery needed). The unit files are in `scripts/systemd/`; check that User, WorkingDirectory and the Python path match `systemctl cat gallopics-api`, then:
 
 ```bash
-celery -A app.tasks.celery_app worker --loglevel=info
-celery -A app.tasks.celery_app beat --loglevel=info
+sudo cp scripts/systemd/gallopics-equipe-sync.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gallopics-equipe-sync.timer
+systemctl list-timers gallopics-equipe-sync.timer   # next run
+journalctl -u gallopics-equipe-sync -n 20            # last run's output
 ```
 
-Without the periodic sync, newly created Equipe meetings will not appear in `/api/v1/events` until `scripts/post_deploy_sync.sh` or `POST /api/v1/integrations/equipe/sync` is run.
+Without a sync, newly created Equipe meetings will not appear in `/api/v1/events`. `POST /api/v1/integrations/equipe/sync` still works for admins.
 
 ## Running Tests
 
