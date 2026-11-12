@@ -1,6 +1,8 @@
 import uuid
 from typing import Optional
 
+import structlog
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +24,7 @@ from app.schemas.order import OrderResponse
 from app.services.event_service import EventService
 from app.services.matching_service import MatchingService
 from app.services.stripe_connect_service import connect_status
+from app.services.transactional_email_service import TransactionalEmailService
 
 router = APIRouter(
     prefix="/api/v1/admin",
@@ -141,9 +144,12 @@ async def update_photographer_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Approve or reject (status "suspended") a photographer, or set them back to pending."""
-    photographer = await db.get(Photographer, photographer_id)
+    photographer = (await db.execute(
+        select(Photographer).where(Photographer.id == photographer_id).with_for_update()
+    )).scalar_one_or_none()
     if not photographer:
         raise NotFoundError("Photographer not found")
+    newly_approved = photographer.status != PhotographerStatus.APPROVED and body.status == PhotographerStatus.APPROVED
     photographer.status = body.status
     await db.flush()
 
@@ -151,4 +157,16 @@ async def update_photographer_status(
     photo_count = (
         await db.execute(select(func.count(Photo.id)).where(Photo.photographer_id == photographer.id))
     ).scalar_one()
-    return _admin_photographer(photographer, user.email if user else "", photo_count)
+    response = _admin_photographer(photographer, user.email if user else "", photo_count)
+    if newly_approved:
+        # Persist approval before contacting the email provider.
+        await db.commit()
+        try:
+            await TransactionalEmailService(get_settings()).send_photographer_approval(
+                recipient_email=user.email if user else None,
+            )
+        except Exception as exc:
+            structlog.get_logger().warning(
+                "photographer_approval_email_failed", photographer_id=str(photographer_id), error_type=type(exc).__name__,
+            )
+    return response
