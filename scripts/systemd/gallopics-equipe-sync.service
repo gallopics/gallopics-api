@@ -1,0 +1,14 @@
+# Production Equipe sync, started by gallopics-equipe-sync.timer.
+# User, WorkingDirectory and the Python path must match the API service:
+#   systemctl cat gallopics-api
+[Unit]
+Description=Gallopics Equipe event sync
+After=network-online.target postgresql-15.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=aysha
+WorkingDirectory=/srv/gallopics/prod/api
+ExecStart=/srv/gallopics/prod/api/.venv/bin/python -m scripts.sync_equipe
+TimeoutStartSec=15min

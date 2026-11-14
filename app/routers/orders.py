@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
 async def get_order(
     order_id: uuid.UUID,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = OrderService(db)
     order = await service.get_order(order_id)
@@ -35,7 +35,7 @@ async def get_order(
 async def refund(
     order_id: uuid.UUID,
     user: User = Depends(require_role(UserRole.ADMIN)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
     """Refund the whole order. Its downloads stop working (they need a captured order)."""

@@ -1,6 +1,5 @@
 import uuid
 from io import BytesIO
-from tempfile import TemporaryDirectory
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -19,6 +18,8 @@ from app.schemas import PaginatedResponse
 from app.schemas.checkout import PhotoDownloadRequest, PhotoDownloadResponse
 from app.schemas.photographer import PhotoResponse
 from app.services.gallery_service import GalleryService
+from app.services.download_service import download_bytes
+from app.services.pricing import get_quality_tier
 from app.storage.base import get_storage_backend
 
 router = APIRouter(tags=["gallery"])
@@ -30,7 +31,7 @@ async def get_gallery(
     class_id: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = GalleryService(db)
     items, total = await service.get_event_gallery(event_id, page, page_size, class_id)
@@ -48,7 +49,7 @@ async def search_gallery(
     q: str = Query(...),
     tag_type: Optional[PhotoTagType] = None,
     class_id: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = GalleryService(db)
     photos = await service.search_event_gallery(event_id, q, tag_type, class_id)
@@ -56,7 +57,7 @@ async def search_gallery(
 
 
 @router.get("/api/v1/photos/{photo_id}", response_model=PhotoResponse)
-async def get_photo(photo_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_photo(photo_id: uuid.UUID, db: AsyncSession = Depends(get_db, scope="function")):
     service = GalleryService(db)
     photo = await service.get_photo_detail(photo_id)
     return PhotoResponse.model_validate(photo)
@@ -66,6 +67,7 @@ async def _get_captured_photo_purchase(
     photo_id: uuid.UUID,
     order_id: uuid.UUID,
     db: AsyncSession,
+    quality: str | None = None,
 ) -> PhotoPurchase:
     order = await db.get(Order, order_id)
     if not order:
@@ -73,12 +75,19 @@ async def _get_captured_photo_purchase(
     if order.status != OrderStatus.CAPTURED:
         raise ForbiddenError("Order is not captured")
 
-    result = await db.execute(
+    query = (
         select(PhotoPurchase)
         .options(selectinload(PhotoPurchase.photo))
         .where(PhotoPurchase.order_id == order.id, PhotoPurchase.photo_id == photo_id)
     )
-    purchase = result.scalar_one_or_none()
+    if quality is not None:
+        get_quality_tier(quality)
+        query = query.where(PhotoPurchase.quality == quality)
+    result = await db.execute(query)
+    purchases = result.scalars().all()
+    if len(purchases) > 1:
+        raise BadRequestError("Choose the quality to download")
+    purchase = purchases[0] if purchases else None
     if not purchase:
         raise ForbiddenError("This order does not include the requested photo")
     if not purchase.photo.storage_key_original:
@@ -92,11 +101,11 @@ async def create_photo_download(
     photo_id: uuid.UUID,
     body: PhotoDownloadRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
-    await _get_captured_photo_purchase(photo_id, body.order_id, db)
+    purchase = await _get_captured_photo_purchase(photo_id, body.order_id, db, body.quality)
     url = request.url_for("download_photo_file", photo_id=str(photo_id)).include_query_params(
-        order_id=str(body.order_id)
+        order_id=str(body.order_id), quality=purchase.quality
     )
     return PhotoDownloadResponse(url=str(url), expires_in=3600)
 
@@ -106,16 +115,13 @@ async def download_photo_file(
     photo_id: uuid.UUID,
     order_id: uuid.UUID,
     inline: bool = Query(False),
-    db: AsyncSession = Depends(get_db),
+    quality: str | None = Query(None),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
-    purchase = await _get_captured_photo_purchase(photo_id, order_id, db)
+    purchase = await _get_captured_photo_purchase(photo_id, order_id, db, quality)
     storage = get_storage_backend(get_settings())
 
-    with TemporaryDirectory() as tmpdir:
-        temp_path = f"{tmpdir}/original"
-        await storage.download_to_path(purchase.photo.storage_key_original, temp_path)
-        with open(temp_path, "rb") as file:
-            data = file.read()
+    data = await download_bytes(purchase.photo, get_quality_tier(purchase.quality), storage)
 
     filename = f"gallopics-{photo_id}.jpg"
     disposition = "inline" if inline else "attachment"

@@ -23,11 +23,11 @@ from app.services.transactional_email_service import TransactionalEmailService
 logger = structlog.get_logger()
 
 
-def photo_urls(base_url: str, photo_id: str, order_id: uuid.UUID) -> dict[str, str]:
+def photo_urls(base_url: str, photo_id: str, order_id: uuid.UUID, quality: str) -> dict[str, str]:
     base_url = base_url.rstrip("/")
     return {
         "thumbnail_url": f"{base_url}/api/v1/photographer/photos/{photo_id}/thumbnail",
-        "download_url": f"{base_url}/api/v1/photos/{photo_id}/download?order_id={order_id}&inline=true",
+        "download_url": f"{base_url}/api/v1/photos/{photo_id}/download?order_id={order_id}&quality={get_quality_tier(quality).id}&inline=true",
     }
 
 
@@ -162,7 +162,7 @@ class CheckoutService:
             logger.error("payout_settle_failed", order_id=str(order.id), error=str(exc))
 
         receipt_items = [
-            {**item, **photo_urls(self.public_base_url, item["photo_id"], order.id)} for item in line_items
+            {**item, **photo_urls(self.public_base_url, item["photo_id"], order.id, item["quality"])} for item in line_items
         ]
         try:
             receipt_email = await TransactionalEmailService(self.settings).send_purchase_receipt(

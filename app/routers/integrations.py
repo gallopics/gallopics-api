@@ -3,17 +3,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
+from app.integrations.clerk.auth import require_role
 from app.integrations.equipe.client import EquipeClient
 from app.integrations.tdb.client import TDBClient
+from app.models.enums import UserRole
 from app.schemas.event import EventResponse
 from app.services.event_service import EventService
 from app.services.matching_service import MatchingService
 
-router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
+# Admins only: the nightly sync runs scripts/sync_equipe.py on the server instead
+router = APIRouter(
+    prefix="/api/v1/integrations",
+    tags=["integrations"],
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
+)
 
 
 @router.post("/tdb/sync")
-async def trigger_tdb_sync(db: AsyncSession = Depends(get_db)):
+async def trigger_tdb_sync(db: AsyncSession = Depends(get_db, scope="function")):
     settings = get_settings()
     tdb_client = TDBClient(settings.tdb_base_url)
     try:
@@ -25,7 +32,7 @@ async def trigger_tdb_sync(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/equipe/sync")
-async def trigger_equipe_sync(db: AsyncSession = Depends(get_db)):
+async def trigger_equipe_sync(db: AsyncSession = Depends(get_db, scope="function")):
     settings = get_settings()
     equipe_client = EquipeClient(settings.equipe_base_url)
     try:
@@ -36,7 +43,7 @@ async def trigger_equipe_sync(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/events/rematch")
-async def trigger_rematch(db: AsyncSession = Depends(get_db)):
+async def trigger_rematch(db: AsyncSession = Depends(get_db, scope="function")):
     matching_service = MatchingService(db)
     unmatched = await matching_service.get_unmatched_events()
     # Re-run is a no-op without Equipe data; this endpoint is useful after new events are synced
@@ -44,7 +51,7 @@ async def trigger_rematch(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/events/unmatched", response_model=list[EventResponse])
-async def get_unmatched_events(db: AsyncSession = Depends(get_db)):
+async def get_unmatched_events(db: AsyncSession = Depends(get_db, scope="function")):
     matching_service = MatchingService(db)
     events = await matching_service.get_unmatched_events()
     return [EventResponse.model_validate(e) for e in events]

@@ -8,6 +8,7 @@ from app.models.user import User
 from tests.factories import make_event
 
 DEFAULT_PRICES = {"web": 49900, "high": 99900, "commercial": 150000}
+URL = "/api/v1/photographer/photos"
 
 
 async def _seed_photographer(db_session, user, status=PhotographerStatus.APPROVED):
@@ -68,15 +69,15 @@ async def test_owner_sets_one_photos_prices(
     photo = await _seed_photo(db_session, await _seed_photographer(db_session, photographer_user))
 
     response = await async_client.patch(
-        f"/api/v1/photographer/photos/{photo.id}",
-        json={"prices": {"web": 5900, "commercial": 250000}},
+        URL,
+        json={"photo_ids": [str(photo.id)], "prices": {"web": 5900, "commercial": 250000}},
         headers=photographer_auth_headers,
     )
 
     assert response.status_code == 200, response.text
     # A tier left out keeps its price
     expected = {"web": 5900, "high": 99900, "commercial": 250000}
-    assert response.json()["prices"] == expected
+    assert response.json()[0]["prices"] == expected
     assert await _prices(db_session, photo) == expected
 
 
@@ -88,7 +89,7 @@ async def test_owner_sets_prices_for_several_photos(
     prices = {"web": 4900, "high": 79900, "commercial": 120000}
 
     response = await async_client.patch(
-        "/api/v1/photographer/photos/prices",
+        URL,
         json={"photo_ids": [str(photo.id) for photo in photos], "prices": prices},
         headers=photographer_auth_headers,
     )
@@ -99,6 +100,7 @@ async def test_owner_sets_prices_for_several_photos(
         assert await _prices(db_session, photo) == prices
 
 
+# Mixed owners, unknown photos and who may call it: see test_photo_details_api.py
 async def test_cannot_set_another_photographers_prices(
     async_client, db_session, photographer_user, photographer_auth_headers
 ):
@@ -106,79 +108,9 @@ async def test_cannot_set_another_photographers_prices(
     photo = await _other_photographers_photo(db_session)
 
     response = await async_client.patch(
-        f"/api/v1/photographer/photos/{photo.id}",
-        json={"prices": {"web": 5900}},
-        headers=photographer_auth_headers,
-    )
-
-    assert response.status_code == 403
-    assert await _prices(db_session, photo) == DEFAULT_PRICES
-
-
-async def test_bulk_update_with_another_photographers_photo_changes_nothing(
-    async_client, db_session, photographer_user, photographer_auth_headers
-):
-    own = await _seed_photo(db_session, await _seed_photographer(db_session, photographer_user))
-    other = await _other_photographers_photo(db_session)
-
-    response = await async_client.patch(
-        "/api/v1/photographer/photos/prices",
-        json={"photo_ids": [str(own.id), str(other.id)], "prices": {"web": 5900}},
-        headers=photographer_auth_headers,
-    )
-
-    assert response.status_code == 403
-    assert await _prices(db_session, own) == DEFAULT_PRICES
-    assert await _prices(db_session, other) == DEFAULT_PRICES
-
-
-async def test_bulk_update_with_unknown_photo_is_not_found(
-    async_client, db_session, photographer_user, photographer_auth_headers
-):
-    photo = await _seed_photo(db_session, await _seed_photographer(db_session, photographer_user))
-
-    response = await async_client.patch(
-        "/api/v1/photographer/photos/prices",
-        json={
-            "photo_ids": [str(photo.id), "00000000-0000-0000-0000-000000000000"],
-            "prices": {"web": 5900},
-        },
-        headers=photographer_auth_headers,
-    )
-
-    assert response.status_code == 404
-    assert await _prices(db_session, photo) == DEFAULT_PRICES
-
-
-@pytest.mark.parametrize("status", [PhotographerStatus.PENDING, PhotographerStatus.SUSPENDED])
-async def test_unapproved_photographer_cannot_set_prices(
-    async_client, db_session, photographer_user, photographer_auth_headers, status
-):
-    photo = await _seed_photo(db_session, await _seed_photographer(db_session, photographer_user, status))
-
-    single = await async_client.patch(
-        f"/api/v1/photographer/photos/{photo.id}",
-        json={"prices": {"web": 5900}},
-        headers=photographer_auth_headers,
-    )
-    bulk = await async_client.patch(
-        "/api/v1/photographer/photos/prices",
+        URL,
         json={"photo_ids": [str(photo.id)], "prices": {"web": 5900}},
         headers=photographer_auth_headers,
-    )
-
-    assert single.status_code == 403
-    assert bulk.status_code == 403
-    assert await _prices(db_session, photo) == DEFAULT_PRICES
-
-
-async def test_buyer_cannot_set_prices(async_client, db_session, auth_headers):
-    photo = await _other_photographers_photo(db_session)
-
-    response = await async_client.patch(
-        "/api/v1/photographer/photos/prices",
-        json={"photo_ids": [str(photo.id)], "prices": {"web": 5900}},
-        headers=auth_headers,
     )
 
     assert response.status_code == 403
@@ -201,19 +133,13 @@ async def test_rejects_invalid_prices(
 ):
     photo = await _seed_photo(db_session, await _seed_photographer(db_session, photographer_user))
 
-    single = await async_client.patch(
-        f"/api/v1/photographer/photos/{photo.id}",
-        json={"prices": {"high": amount}},
-        headers=photographer_auth_headers,
-    )
-    bulk = await async_client.patch(
-        "/api/v1/photographer/photos/prices",
+    response = await async_client.patch(
+        URL,
         json={"photo_ids": [str(photo.id)], "prices": {"web": 5900, "high": amount}},
         headers=photographer_auth_headers,
     )
 
-    assert single.status_code == 422
-    assert bulk.status_code == 422
+    assert response.status_code == 422
     assert await _prices(db_session, photo) == DEFAULT_PRICES
 
 
@@ -224,10 +150,10 @@ async def test_accepts_prices_at_the_limits(
     photo = await _seed_photo(db_session, await _seed_photographer(db_session, photographer_user))
 
     response = await async_client.patch(
-        f"/api/v1/photographer/photos/{photo.id}",
-        json={"prices": {"web": amount, "high": amount, "commercial": amount}},
+        URL,
+        json={"photo_ids": [str(photo.id)], "prices": {"web": amount, "high": amount, "commercial": amount}},
         headers=photographer_auth_headers,
     )
 
     assert response.status_code == 200, response.text
-    assert response.json()["prices"] == {"web": amount, "high": amount, "commercial": amount}
+    assert response.json()[0]["prices"] == {"web": amount, "high": amount, "commercial": amount}

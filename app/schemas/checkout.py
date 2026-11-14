@@ -67,6 +67,7 @@ class CheckoutOrderResponse(BaseModel):
 
 class PhotoDownloadRequest(BaseModel):
     order_id: uuid.UUID
+    quality: str | None = None
 
 
 class PhotoDownloadResponse(BaseModel):

@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import structlog
 from dateutil.parser import parse as parse_date
@@ -309,7 +309,7 @@ class EventService:
         return {"created": created, "updated": updated, "errors": errors, "error_samples": error_samples}
 
     async def sync_from_equipe(self, equipe_client: EquipeClient, country: str = "swe") -> dict:
-        sync_started_at = datetime.utcnow()
+        sync_started_at = datetime.now(timezone.utc)
         raw_meetings = await equipe_client.get_meetings(params={"country": country})
         created, updated, skipped, errors = 0, 0, 0, 0
         error_samples = []
