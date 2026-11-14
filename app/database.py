@@ -7,7 +7,12 @@ from app.config import get_settings
 
 settings = get_settings()
 
-engine = create_async_engine(settings.database_url, echo=settings.database_echo)
+# Run every API session in UTC, whatever the server's default zone is (prod is America/New_York).
+# Alembic uses its own engine on purpose: the timestamptz migration needs the server's zone.
+_connect_args = (
+    {"server_settings": {"timezone": "UTC"}} if settings.database_url.startswith("postgresql+asyncpg") else {}
+)
+engine = create_async_engine(settings.database_url, echo=settings.database_echo, connect_args=_connect_args)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 

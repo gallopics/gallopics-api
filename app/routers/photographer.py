@@ -86,9 +86,10 @@ def _parse_optional_datetime(value: Optional[str], field_name: str) -> Optional[
     except (TypeError, ValueError) as exc:
         raise BadRequestError(f"Invalid {field_name}") from exc
 
-    if parsed.tzinfo is not None:
-        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
-    return parsed
+    # A time without an offset is taken as UTC (the browser always sends one)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 async def _match_uploaded_photos(db: AsyncSession, photos: list[Photo], event_id: uuid.UUID) -> None:
