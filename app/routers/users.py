@@ -19,7 +19,7 @@ async def get_my_profile(user: User = Depends(get_current_user)):
 @router.get("/orders", response_model=list[OrderResponse])
 async def get_my_orders(
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     service = OrderService(db)
     orders = await service.list_user_orders(user.id)

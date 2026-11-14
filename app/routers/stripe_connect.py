@@ -37,7 +37,7 @@ def _status_response(photographer: Photographer) -> StripeConnectStatusResponse:
 async def get_connect_status(
     refresh: bool = False,
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
     """The saved status; `refresh=true` re-reads it from Stripe (after returning from onboarding)."""
@@ -51,7 +51,7 @@ async def get_connect_status(
 async def create_onboarding_link(
     body: Optional[StripeOnboardingRequest] = None,
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
     photographer = await PhotographerService(db).get_photographer_for_user(user.id)
@@ -63,7 +63,7 @@ async def create_onboarding_link(
 @router.post("/dashboard-link", response_model=StripeLinkResponse)
 async def create_dashboard_link(
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
     photographer = await PhotographerService(db).get_photographer_for_user(user.id)
@@ -74,7 +74,7 @@ async def create_dashboard_link(
 @webhook_router.post("/webhook")
 async def stripe_connect_webhook(
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
     """Events about photographers' Stripe accounts; each one re-reads the account from Stripe.

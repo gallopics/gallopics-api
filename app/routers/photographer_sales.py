@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1/photographer/sales", tags=["photographer-sale
 @router.get("", response_model=SalesResponse)
 async def list_my_sales(
     user: User = Depends(require_role(UserRole.PHOTOGRAPHER)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Every paid (or later refunded) sale of this photographer's photos, newest first."""
     settings = get_settings()

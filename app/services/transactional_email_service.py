@@ -12,6 +12,40 @@ class TransactionalEmailService:
     def __init__(self, settings: Settings):
         self.settings = settings
 
+    async def send_photographer_approval(self, *, recipient_email: str | None) -> dict:
+        if not recipient_email:
+            return {"status": "skipped", "reason": "missing_recipient"}
+        if not self._is_configured:
+            return {"status": "skipped", "reason": "email_not_configured"}
+        studio_url = f"{self.settings.frontend_base_url.rstrip('/')}/pg"
+        safe_url = html.escape(studio_url, quote=True)
+        payload = {
+            "from": self.settings.transactional_email_from,
+            "to": [recipient_email],
+            "subject": "Your Gallopics account is approved",
+            "text": f"Your Gallopics account is approved. You can now upload and sell your photos.\n\nOpen My Studio: {studio_url}",
+            "html": f"""<!doctype html><html lang="en"><body style="margin:0;background:#eceef2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#040136;">
+<table role="presentation" width="100%" style="padding:48px 20px;"><tr><td align="center">
+<table role="presentation" width="600" style="max-width:100%;background:#ffffff;border-radius:12px;overflow:hidden;">
+<tr><td style="padding:32px;text-align:center;font-size:28px;font-weight:800;color:#1b3aec;">Gallopics</td></tr>
+<tr><td style="padding:40px;background:#f9fafb;text-align:center;"><h1 style="font-size:30px;">Your Gallopics account is approved</h1>
+<p style="color:#666666;line-height:1.7;">You can now upload and sell your photos.</p>
+<a href="{safe_url}" style="display:inline-block;margin:16px 0;background:#1b3aec;color:#ffffff;text-decoration:none;padding:14px 24px;border-radius:7px;font-weight:700;">Open My Studio</a></td></tr>
+<tr><td style="padding:28px 40px;background:#1a1a1a;color:#ffffff;font-size:24px;font-weight:800;">Gallopics</td></tr>
+</table></td></tr></table></body></html>""",
+            "tags": [{"name": "type", "value": "photographer_approval"}],
+        }
+        if self.settings.transactional_email_reply_to:
+            payload["reply_to"] = [self.settings.transactional_email_reply_to]
+        async with httpx.AsyncClient(
+            base_url=self.settings.resend_api_url,
+            timeout=20.0,
+            headers={"Authorization": f"Bearer {self.settings.resend_api_key}"},
+        ) as client:
+            response = await client.post("/emails", json=payload)
+            response.raise_for_status()
+        return {"status": "sent", "provider": "resend"}
+
     async def send_purchase_receipt(
         self,
         *,

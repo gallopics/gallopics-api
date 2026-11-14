@@ -33,7 +33,7 @@ _UNPAID_EVENTS = {"checkout.session.expired", "checkout.session.async_payment_fa
 
 async def _get_or_create_user(
     auth: str | None = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> User:
     if auth and auth.startswith("Bearer "):
         try:
@@ -74,7 +74,7 @@ def _order_response(order: Order, service: CheckoutService) -> CheckoutOrderResp
             quality=item["quality"],
             name=item["name"],
             amount=item["total_amount"],
-            thumbnail_url=photo_urls(service.public_base_url, item["photo_id"], order.id)["thumbnail_url"],
+            thumbnail_url=photo_urls(service.public_base_url, item["photo_id"], order.id, item["quality"])["thumbnail_url"],
         )
         for item in order.line_items or []
     ]
@@ -93,7 +93,7 @@ def _order_response(order: Order, service: CheckoutService) -> CheckoutOrderResp
 async def create_session(
     body: CreateCheckoutSessionRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
     user = await _get_or_create_user(auth=request.headers.get("authorization"), db=db)
@@ -106,7 +106,7 @@ async def create_session(
 async def get_session_order(
     session_id: str,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
     """For the success page. The session id is only known to the buyer who paid."""
@@ -118,7 +118,7 @@ async def get_session_order(
 @router.post("/webhook/stripe")
 async def stripe_webhook(
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     stripe_client: stripe.StripeClient = Depends(get_stripe_client),
 ):
     settings = get_settings()

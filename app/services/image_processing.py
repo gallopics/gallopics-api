@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 
@@ -94,15 +95,15 @@ async def process_photo(photo, storage: StorageBackend, db=None):
             await storage.download_to_path(photo.storage_key_original, original_path)
 
             thumbnail_path = os.path.join(tmpdir, "thumbnail.jpg")
-            generate_thumbnail(original_path, thumbnail_path)
+            await asyncio.to_thread(generate_thumbnail, original_path, thumbnail_path)
             thumb_key = photo.storage_key_original.replace("originals/", "thumbnails/")
             await storage.upload_from_path(thumbnail_path, thumb_key, "image/jpeg")
 
             preview_path = os.path.join(tmpdir, "preview.jpg")
-            generate_preview(original_path, preview_path)
+            await asyncio.to_thread(generate_preview, original_path, preview_path)
             watermarked_path = os.path.join(tmpdir, "preview_wm.jpg")
             photographer_name = await _get_photographer_display_name(photo, db)
-            apply_watermark(preview_path, watermarked_path, photographer_name)
+            await asyncio.to_thread(apply_watermark, preview_path, watermarked_path, photographer_name)
             preview_key = photo.storage_key_original.replace("originals/", "previews/")
             await storage.upload_from_path(watermarked_path, preview_key, "image/jpeg")
 

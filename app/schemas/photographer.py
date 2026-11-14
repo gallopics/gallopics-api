@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 from app.models.enums import OrderStatus, PhotoStatus, PhotoTagType, PhotoVisibility
 from app.services.pricing import validate_price
@@ -72,6 +72,7 @@ class OwnPhotoResponse(PhotoResponse):
     file_name: Optional[str] = None
     # Private to the photographer, so not on PhotoResponse
     folder_id: Optional[uuid.UUID] = None
+    own_prices: dict[str, int | None]
 
 
 class PhotographerResponse(BaseModel):
@@ -134,7 +135,7 @@ class CompleteUploadRequest(BaseModel):
 
 
 class UpdatePhotoPricesFields(BaseModel):
-    """New prices in öre; tiers left out keep their price."""
+    """Prices in öre; omitted tiers stay unchanged, null follows the default."""
 
     web: Optional[int] = None
     high: Optional[int] = None
@@ -146,17 +147,49 @@ class UpdatePhotoPricesFields(BaseModel):
         return None if value is None else validate_price(value)
 
 
-class UpdatePhotoRequest(BaseModel):
-    visibility: Optional[PhotoVisibility] = None
-    prices: Optional[UpdatePhotoPricesFields] = None
-    tags: Optional[list[PhotoTagResponse]] = None
+class PhotographerPricesResponse(BaseModel):
+    defaults: dict[str, int | None]
+    effective: PhotoPrices
 
 
-class UpdatePhotoPricesRequest(BaseModel):
-    """The same prices for several photos at once."""
+class UpdatePhotosRequest(BaseModel):
+    """The same details for several photos at once.
+
+    rider/horse: left out = keep, "" or null = remove, text = set. Other tag
+    types (class, start_number) are never touched.
+    """
 
     photo_ids: list[uuid.UUID] = Field(min_length=1, max_length=1000)
-    prices: UpdatePhotoPricesFields
+    rider: Optional[str] = None
+    horse: Optional[str] = None
+    prices: Optional[UpdatePhotoPricesFields] = None
+
+    @field_validator("photo_ids")
+    @classmethod
+    def validate_unique(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError("Photo IDs must be unique")
+        return value
+
+    @field_validator("rider", "horse")
+    @classmethod
+    def strip_tag(cls, value: Optional[str]) -> str:
+        return (value or "").strip()
+
+    @model_validator(mode="after")
+    def require_change(self) -> "UpdatePhotosRequest":
+        if not self.tag_changes() and not (self.prices and self.prices.model_fields_set):
+            raise ValueError("Nothing to update")
+        return self
+
+    def tag_changes(self) -> dict[PhotoTagType, str]:
+        """Only the tag types the request sent; "" means remove."""
+        fields = {"rider": PhotoTagType.RIDER, "horse": PhotoTagType.HORSE}
+        return {
+            tag_type: getattr(self, name)
+            for name, tag_type in fields.items()
+            if name in self.model_fields_set
+        }
 
 
 FOLDER_NAME_MAX_LENGTH = 60

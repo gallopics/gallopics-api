@@ -281,7 +281,7 @@ async def test_webhook_fulfils_order_once(async_client, db_session, fake_stripe)
     assert send_receipt.await_args.kwargs["recipient_email"] == "buyer@example.com"
     assert receipt_item["download_url"] == (
         f"https://api.gallopics.test/api/v1/photos/{photo.id}/download"
-        f"?order_id={data['order_id']}&inline=true"
+        f"?order_id={data['order_id']}&quality=high&inline=true"
     )
 
     download = await async_client.post(f"/api/v1/photos/{photo.id}/download", json={"order_id": data["order_id"]})

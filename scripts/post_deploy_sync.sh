@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
+# Sync Equipe events now (the same as the nightly timer). Run on the server.
 set -euo pipefail
 
-if [[ -z "${SERVICE_URL:-}" ]]; then
-  echo "SERVICE_URL is required, for example: http://82.96.43.103:8081"
-  exit 1
-fi
-
-curl -fsS -X POST "$SERVICE_URL/api/v1/integrations/equipe/sync"
-echo
+cd "$(dirname "$0")/.."
+"${PYTHON:-.venv/bin/python}" -m scripts.sync_equipe

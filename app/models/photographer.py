@@ -16,7 +16,7 @@ from app.models.enums import (
     PhotoTagType,
     PhotoVisibility,
 )
-from app.services.pricing import QUALITY_TIERS
+from app.services.pricing import QUALITY_TIERS, photo_price
 
 if TYPE_CHECKING:
     from app.models.order import Order
@@ -35,6 +35,9 @@ class Photographer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     phone: Mapped[Optional[str]] = mapped_column(String)
     is_available_to_hire: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[PhotographerStatus] = mapped_column(default=PhotographerStatus.PENDING)
+    default_price_web: Mapped[Optional[int]] = mapped_column()
+    default_price_high: Mapped[Optional[int]] = mapped_column()
+    default_price_commercial: Mapped[Optional[int]] = mapped_column()
     highlights: Mapped[list[str]] = mapped_column(
         ARRAY(String).with_variant(JSON, "sqlite"),
         default=list,
@@ -100,19 +103,10 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     match_source: Mapped[Optional[str]] = mapped_column(String)
     # Unused: superseded by the per-tier prices below
     price: Mapped[int] = mapped_column()
-    # The photographer's price per quality tier, in öre (see app/services/pricing.py)
-    price_web: Mapped[int] = mapped_column(
-        default=QUALITY_TIERS["web"].default_amount,
-        server_default=str(QUALITY_TIERS["web"].default_amount),
-    )
-    price_high: Mapped[int] = mapped_column(
-        default=QUALITY_TIERS["high"].default_amount,
-        server_default=str(QUALITY_TIERS["high"].default_amount),
-    )
-    price_commercial: Mapped[int] = mapped_column(
-        default=QUALITY_TIERS["commercial"].default_amount,
-        server_default=str(QUALITY_TIERS["commercial"].default_amount),
-    )
+    # Own prices in öre; NULL follows the photographer's default (see pricing.py).
+    price_web: Mapped[Optional[int]] = mapped_column()
+    price_high: Mapped[Optional[int]] = mapped_column()
+    price_commercial: Mapped[Optional[int]] = mapped_column()
     currency: Mapped[str] = mapped_column(String, default="SEK")
     status: Mapped[PhotoStatus] = mapped_column(default=PhotoStatus.PROCESSING)
     visibility: Mapped[PhotoVisibility] = mapped_column(default=PhotoVisibility.DRAFT)
@@ -121,7 +115,7 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("photo_folders.id", ondelete="SET NULL"), index=True
     )
 
-    photographer: Mapped["Photographer"] = relationship(back_populates="photos")
+    photographer: Mapped["Photographer"] = relationship(back_populates="photos", lazy="selectin")
     tags: Mapped[list["PhotoTag"]] = relationship(back_populates="photo", cascade="all, delete-orphan")
     purchases: Mapped[list["PhotoPurchase"]] = relationship(back_populates="photo", cascade="all, delete-orphan")
 
@@ -135,6 +129,10 @@ class Photo(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     @property
     def prices(self) -> dict[str, int]:
+        return {tier.id: photo_price(self, tier) for tier in QUALITY_TIERS.values()}
+
+    @property
+    def own_prices(self) -> dict[str, int | None]:
         return {tier_id: getattr(self, f"price_{tier_id}") for tier_id in QUALITY_TIERS}
 
     @property
