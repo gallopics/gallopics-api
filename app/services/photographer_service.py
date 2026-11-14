@@ -6,7 +6,7 @@ from typing import Optional
 import redis.asyncio as aioredis
 from fastapi import UploadFile
 from slugify import slugify
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,6 +14,7 @@ from app.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFo
 from app.models.enums import (
     PhotographerStatus,
     PhotoStatus,
+    PhotoTagType,
     PhotoVisibility,
     UserRole,
 )
@@ -348,39 +349,40 @@ class PhotographerService:
         items = list(result.scalars().all())
         return items, total
 
-    async def update_photo(
-        self, photo_id: uuid.UUID, photographer_id: uuid.UUID, data: dict
-    ) -> Photo:
-        result = await self.db.execute(
-            select(Photo).where(Photo.id == photo_id).options(selectinload(Photo.tags))
-        )
-        photo = result.scalar_one_or_none()
-        if not photo:
-            raise NotFoundError("Photo not found")
-        if photo.photographer_id != photographer_id:
-            raise ForbiddenError("Not your photo")
-
-        if "visibility" in data and data["visibility"] is not None:
-            photo.visibility = data["visibility"]
-        if data.get("prices"):
-            self._set_prices(photo, data["prices"])
-        if "tags" in data and data["tags"] is not None:
-            # Replace all tags
-            await self.db.execute(
-                PhotoTag.__table__.delete().where(PhotoTag.photo_id == photo_id)
-            )
-            for tag in data["tags"]:
-                t = PhotoTag(photo_id=photo_id, type=tag["type"], value=tag["value"])
-                self.db.add(t)
-
-        await self.db.flush()
-        await self.db.refresh(photo)
-        return photo
-
-    async def update_photo_prices(
-        self, photo_ids: list[uuid.UUID], photographer_id: uuid.UUID, prices: dict
+    async def update_photos(
+        self,
+        photo_ids: list[uuid.UUID],
+        photographer_id: uuid.UUID,
+        tags: dict[PhotoTagType, str],
+        prices: dict,
     ) -> list[Photo]:
-        """The same prices for several photos; all of them must be this photographer's, or none change."""
+        """The same tags and prices for several photos; all of them must be this photographer's, or none change.
+
+        Only the tag types in `tags` are replaced ("" removes them), so class and
+        start_number tags from auto-matching stay.
+        """
+        photos = await self._get_own_photos(photo_ids, photographer_id)
+        if tags:
+            await self.db.execute(
+                delete(PhotoTag).where(
+                    PhotoTag.photo_id.in_([photo.id for photo in photos]),
+                    PhotoTag.type.in_(list(tags)),
+                )
+            )
+            self.db.add_all(
+                PhotoTag(photo_id=photo.id, type=tag_type, value=value)
+                for photo in photos
+                for tag_type, value in tags.items()
+                if value
+            )
+        for photo in photos:
+            self._set_prices(photo, prices)
+        await self.db.flush()
+        return photos
+
+    async def _get_own_photos(
+        self, photo_ids: list[uuid.UUID], photographer_id: uuid.UUID
+    ) -> list[Photo]:
         unique_ids = set(photo_ids)
         result = await self.db.execute(select(Photo).where(Photo.id.in_(unique_ids)))
         photos = list(result.scalars().all())
@@ -388,10 +390,6 @@ class PhotographerService:
             raise NotFoundError("Photo not found")
         if any(photo.photographer_id != photographer_id for photo in photos):
             raise ForbiddenError("Not your photo")
-
-        for photo in photos:
-            self._set_prices(photo, prices)
-        await self.db.flush()
         return photos
 
     @staticmethod
@@ -450,14 +448,7 @@ class PhotographerService:
     ) -> list[Photo]:
         """Photos into one of the photographer's folders (None = Uncategorised); all of them move, or none."""
         folder = await self._get_own_folder(folder_id, photographer_id) if folder_id else None
-
-        unique_ids = set(photo_ids)
-        result = await self.db.execute(select(Photo).where(Photo.id.in_(unique_ids)))
-        photos = list(result.scalars().all())
-        if len(photos) != len(unique_ids):
-            raise NotFoundError("Photo not found")
-        if any(photo.photographer_id != photographer_id for photo in photos):
-            raise ForbiddenError("Not your photo")
+        photos = await self._get_own_photos(photo_ids, photographer_id)
         if folder and any(photo.event_id != folder.event_id for photo in photos):
             raise BadRequestError("Photos can only move to a folder of their own event")
 

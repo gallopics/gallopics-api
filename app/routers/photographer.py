@@ -32,9 +32,8 @@ from app.schemas.photographer import (
     PhotographerPricesResponse,
     RenamePhotoFolderRequest,
     UpdateHighlightsRequest,
-    UpdatePhotoPricesRequest,
     UpdatePhotoPricesFields,
-    UpdatePhotoRequest,
+    UpdatePhotosRequest,
     UploadSessionResponse,
     UpsertPhotographerProfileRequest,
 )
@@ -450,22 +449,6 @@ async def list_my_photos(
     )
 
 
-# Before /photos/{photo_id}, which would otherwise match "prices"
-@router.patch("/photos/prices", response_model=list[OwnPhotoResponse])
-async def update_photo_prices(
-    body: UpdatePhotoPricesRequest,
-    user: User = Depends(require_approved_photographer),
-    db: AsyncSession = Depends(get_db, scope="function"),
-):
-    service = PhotographerService(db)
-    photographer = await service.get_photographer_for_user(user.id)
-    photos = await service.update_photo_prices(
-        body.photo_ids, photographer.id, body.prices.model_dump(exclude_unset=True)
-    )
-    return await _photo_responses(db, photos)
-
-
-# Also before /photos/{photo_id}
 @router.patch("/photos/folder", response_model=list[OwnPhotoResponse])
 async def move_photos_to_folder(
     body: MovePhotosToFolderRequest,
@@ -478,18 +461,19 @@ async def move_photos_to_folder(
     return await _photo_responses(db, photos)
 
 
-@router.patch("/photos/{photo_id}", response_model=OwnPhotoResponse)
-async def update_photo(
-    photo_id: uuid.UUID,
-    body: UpdatePhotoRequest,
+@router.patch("/photos", response_model=list[OwnPhotoResponse])
+async def update_photos(
+    body: UpdatePhotosRequest,
     user: User = Depends(require_approved_photographer),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
-    storage = _get_storage()
-    service = PhotographerService(db, storage)
+    service = PhotographerService(db)
     photographer = await service.get_photographer_for_user(user.id)
-    photo = await service.update_photo(photo_id, photographer.id, body.model_dump(exclude_unset=True))
-    return (await _photo_responses(db, [photo]))[0]
+    prices = body.prices.model_dump(exclude_unset=True) if body.prices else {}
+    photos = await service.update_photos(
+        body.photo_ids, photographer.id, body.tag_changes(), prices
+    )
+    return await _photo_responses(db, photos)
 
 
 @router.get("/photos/{photo_id}/preview", include_in_schema=False)

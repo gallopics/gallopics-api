@@ -23,12 +23,12 @@ async def test_linked_prices_resolve_and_clear_overrides(async_client, db_sessio
     assert updated.json()["effective"] == {**DEFAULT_PRICES,"web":7900,"high":129900}
     public = await async_client.get(f"/api/v1/photos/{photo.id}")
     assert public.json()["prices"]["web"] == 7900
-    override = await async_client.patch(f"/api/v1/photographer/photos/{photo.id}", headers=photographer_auth_headers, json={"prices":{"web":9900}})
-    assert override.json()["prices"]["web"] == 9900
-    assert override.json()["own_prices"] == {"web":9900,"high":None,"commercial":None}
+    override = await async_client.patch("/api/v1/photographer/photos", headers=photographer_auth_headers, json={"photo_ids":[str(photo.id)],"prices":{"web":9900}})
+    assert override.json()[0]["prices"]["web"] == 9900
+    assert override.json()[0]["own_prices"] == {"web":9900,"high":None,"commercial":None}
     await async_client.patch(url, headers=photographer_auth_headers, json={"web":8900})
     assert (await async_client.get(f"/api/v1/photos/{photo.id}")).json()["prices"]["web"] == 9900
-    cleared = await async_client.patch("/api/v1/photographer/photos/prices", headers=photographer_auth_headers, json={"photo_ids":[str(photo.id)],"prices":{"web":None}})
+    cleared = await async_client.patch("/api/v1/photographer/photos", headers=photographer_auth_headers, json={"photo_ids":[str(photo.id)],"prices":{"web":None}})
     assert cleared.status_code == 200
     assert cleared.json()[0]["prices"]["web"] == 8900
     assert cleared.json()[0]["own_prices"]["web"] is None

@@ -200,7 +200,7 @@ Writes (bookings, uploads, photo edits, highlights) also require an approved pho
 | POST | `/api/v1/photographer/uploads/sessions` | Create upload session |
 | POST | `/api/v1/photographer/uploads/complete` | Complete upload |
 | GET | `/api/v1/photographer/photos` | List my photos |
-| PATCH | `/api/v1/photographer/photos/{id}` | Update photo |
+| PATCH | `/api/v1/photographer/photos` | Set rider, horse and prices for several photos at once (all or nothing) |
 | DELETE | `/api/v1/photographer/photos/{id}` | Delete photo (409 if it has been sold) |
 | GET | `/api/v1/photographer/stripe` | My Stripe Connect status |
 | POST | `/api/v1/photographer/stripe/onboarding-link` | Link to Stripe onboarding |
